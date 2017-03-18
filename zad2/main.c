@@ -17,9 +17,7 @@ short *parseDate(char *string);
 
 void parseContactLine(char *line, contactStr **contacts, int lineNum) ;
 
-bTBook *measureBTBookCreation(contactStr **contacts, int contactsCount) ;
-
-linkedBook *measureLinkedBookCreation(contactStr **contacts, int contactsCount) ;
+bTBook *measure_tree_book_creation(contactStr **contacts, int contactsCount) ;
 
 linkedBook *measureSingleLinkedBook(contactStr **pStr, const int contactsCount);
 
@@ -165,8 +163,13 @@ void delete_data(contactStr **contacts) {
 int main() {
     contactStr **contacts = load_data();
 
-    linkedBook *lBook = measureLinkedBookCreation(linkedContacts, RECORDS);
-    bTBook *tBook = measureBTBookCreation(binTreeContacts, RECORDS);
+    measure_link_book_creation(contacts);
+
+
+
+
+
+    measure_tree_book_creation(contacts);
 
     linkedBook *lBook1 = measureSingleLinkedBook(linkedContacts1, RECORDS);
     bTBook *tBook1 = measureSingleBTreeBook(binTreeContacts1, RECORDS);
@@ -189,6 +192,13 @@ int main() {
     delete_data(contacts);
 
 }
+
+typedef linkedBook* (*on_contacts_m_linked)(contactStr **contacts);
+typedef bTBook* (*on_contacts_m_tree)(contactStr **contacts);
+typedef void (*on_linked_book_m)(linkedBook *book);
+typedef void (*on_linked_book_ct_m)(linkedBook *book, contactStr *contact);
+typedef void (*on_tree_book_m)(bTBook *book);
+typedef void (*on_tree_book_m_ct_m)(bTBook *book, contactStr *contact);
 
 void measureFindingTimeLBook(linkedBook *book) {
     sortLinkedBookByEmail(book);
@@ -291,18 +301,125 @@ bTBook *measureSingleBTreeBook(contactStr **contacts, int contactsCount) {
     return book;
 }
 
-linkedBook *measureLinkedBookCreation(contactStr **contacts, int contactsCount) {
+micro_t_span *on_contacts_m_linked_time(on_contacts_m_linked method, contactStr **contacts) {
+    micro_t_span *result;
     timePoint *start = createTimePoint();
+
+    linkedBook *book = method(contacts);
+
+    timePoint *end = createTimePoint();
+    result = create_time_span(start, end);
+
+    deleteLinkedBook(&book);
+    deleteTimePoint(start);
+    deleteTimePoint(end);
+    return result;
+}
+
+micro_t_span *on_contacts_m_tree_time(on_contacts_m_tree method, contactStr **contacts) {
+    micro_t_span *result;
+    timePoint *start = createTimePoint();
+
+    bTBook *book = method(contacts);
+
+    timePoint *end = createTimePoint();
+    result = create_time_span(start, end);
+
+    deleteBTBook(&book);
+    deleteTimePoint(start);
+    deleteTimePoint(end);
+    return result;
+}
+
+micro_t_span *on_linked_book_m_time(on_linked_book_m method, linkedBook *book) {
+    micro_t_span *result;
+    timePoint *start = createTimePoint();
+
+    method(book);
+
+    timePoint *end = createTimePoint();
+    result = create_time_span(start, end);
+    deleteTimePoint(start);
+    deleteTimePoint(end);
+    return result;
+}
+
+micro_t_span *on_linked_book_ct_m_time(on_linked_book_ct_m method, linkedBook *book, contactStr *contact) {
+    micro_t_span *result;
+    timePoint *start = createTimePoint();
+
+    method(book, contact);
+
+    timePoint *end = createTimePoint();
+    result = create_time_span(start, end);
+    deleteTimePoint(start);
+    deleteTimePoint(end);
+    return result;
+}
+
+micro_t_span *on_tree_book_m_time(on_tree_book_m method, bTBook *book) {
+    micro_t_span *result;
+    timePoint *start = createTimePoint();
+
+    method(book);
+
+    timePoint *end = createTimePoint();
+    result = create_time_span(start, end);
+    deleteTimePoint(start);
+    deleteTimePoint(end);
+    return result;
+}
+
+micro_t_span *on_tree_book_ct_m_time(on_tree_book_m_ct_m method, bTBook *book, contactStr *contact) {
+    micro_t_span *result;
+    timePoint *start = createTimePoint();
+
+    method(book, contact);
+
+    timePoint *end = createTimePoint();
+    result = create_time_span(start, end);
+    deleteTimePoint(start);
+    deleteTimePoint(end);
+    return result;
+}
+
+void create_linked_book(contactStr **contacts) {
     linkedBook *book = createLinkedBook();
-    for(int i = 0; i < contactsCount; ++i) {
+
+    for(int i = 0; i < RECORDS; ++i) {
         addContactToLinkedBook(book, contacts[i]);
     }
+}
+
+void *measure_link_book_creation(contactStr **contacts) {
+    linkedBook *book = createLinkedBook();
+
+    timePoint *start1 = createTimePoint();
+    for(int i = 0; i < RECORDS; ++i) {
+        addContactToLinkedBook(book, contacts[i]);
+    }
+    timePoint *end1 = createTimePoint();
+    micro_t_span *span1 = create_time_span(start1, end1);
+
+    timePoint *start2 = createTimePoint();
+    for(int i = 0; i < RECORDS; ++i) {
+        addContactToLinkedBook(book, contacts[i]);
+    }
+    timePoint *end2 = createTimePoint();
+    micro_t_span *span2 = create_time_span(start2, end2);
+
+    timePoint *start3 = createTimePoint();
+    for(int i = 0; i < RECORDS; ++i) {
+        addContactToLinkedBook(book, contacts[i]);
+    }
+    timePoint *end3 = createTimePoint();
+
     make_time_measurement(start, "Linked address book with 1000 records creation time in microseconds:");
 
     return book;
 }
 
-bTBook *measureBTBookCreation(contactStr **contacts, int contactsCount) {
+bTBook *measure_tree_book_creation(contactStr **contacts, int contactsCount) {
     timePoint *start = createTimePoint();
     bTBook *book = createBTBook();
     for(int i = 0; i < contactsCount; ++i) {

@@ -140,7 +140,7 @@ void deleteTimePoint(timePoint *point) {
 }
 
 void make_time_measurement(micro_t_span *span, char *note) {
-    printf("%s\treal:%.3f\tuser:%.3f\tsys:%.3f\n", note, span->rtime, span->utime, span->stime);
+    printf("%s\treal:%.3f\tuser:%.3f\tsystem:%.3f\n", note, span->rtime, span->utime, span->stime);
 }
 
 contactStr **load_data() {
@@ -186,6 +186,7 @@ int main() {
     measure_linkbook_finding_el(contacts);
     measure_linkbook_sorting(contacts);
 
+    printf("\n");
 
     measure_treebook_creation(contacts);
     measure_treebook_add_el(contacts);
@@ -391,7 +392,7 @@ void measure_treebook_sorting(contactStr **contacts) {
     micro_t_span *avg = calc_average(span1,span2,span3);
 
 
-    make_time_measurement(avg, "Time of sorting elements in binary tree address book in microseconds: ");
+    make_time_measurement(avg, "Time of sorting elements in binary tree address book in microseconds: \n\t\t");
 
     delete_t_span(span1);
     delete_t_span(span2);
@@ -553,7 +554,7 @@ void measure_linkbook_creation(contactStr **contacts) {
 
     micro_t_span *avg = calc_average(span1, span2, span3);
 
-    make_time_measurement(avg, "Linked address book with 1000 records creation time in microseconds:");
+    make_time_measurement(avg, "Linked address book with 1000 records creation time in microseconds:\n\t\t");
 
     delete_t_span(span1);
     delete_t_span(span2);
@@ -578,7 +579,7 @@ void measure_treebook_creation(contactStr **contacts) {
 
     micro_t_span *avg = calc_average(span1, span2, span3);
 
-    make_time_measurement(avg, "Binary tree address book with 1000 records creation time in microseconds:");
+    make_time_measurement(avg, "Binary tree address book with 1000 records creation time in microseconds:\n\t\t");
 
     delete_t_span(span1);
     delete_t_span(span2);
@@ -643,7 +644,7 @@ void measure_linkbook_sorting(contactStr **contacts) {
     micro_t_span *avg = calc_average(span1,span2,span3);
 
 
-    make_time_measurement(avg, "Time of sorting elements in linked address book in microseconds: ");
+    make_time_measurement(avg, "Time of sorting elements in linked address book in microseconds: \n\t\t");
 
     delete_t_span(span1);
     delete_t_span(span2);

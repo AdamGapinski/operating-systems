@@ -17,11 +17,11 @@ short *parseDate(char *string);
 
 void parseContactLine(char *line, contactStr **contacts, int lineNum) ;
 
-void *measure_treebook_creation(contactStr **contacts);
+void measure_treebook_creation(contactStr **contacts);
 
-void *measure_link_add_el(contactStr **pStr);
+void measure_link_add_el(contactStr **pStr);
 
-void *measure_treebook_add_el(contactStr **pStr);
+void measure_treebook_add_el(contactStr **pStr);
 
 void measure_link_sorting(contactStr **Book);
 
@@ -36,6 +36,8 @@ void measure_link_delete_el(contactStr **book) ;
 void measure_treebook_delete_el(contactStr **book);
 
 void measure_link_creation(contactStr **contacts) ;
+
+micro_t_span *on_linked_book_ct_m_time(on_linked_book_ct_m method, linkedBook *book, contactStr *contact) ;
 
 typedef struct timePoint {
     struct timespec *rtime;
@@ -257,20 +259,25 @@ void measure_treebook_sorting(contactStr **book) {
     make_time_measurement(start, "Time of sorting elements in binary tree address book in microseconds: ");
 }
 
-linkedBook *measure_link_add_el(contactStr **contacts) {
+void measure_link_add_el(contactStr **contacts) {
     linkedBook *book = createLinkedBook();
-
     printf("Single element addition to linked list address book times in microseconds:\n");
-    timePoint *start;
-    for(int i = 0; i < contactsCount; ++i) {
-        start = createTimePoint();
+    for(int i = 0; i < RECORDS; ++i) {
+        micro_t_span *span1 = on_linked_book_ct_m_time(&addContactToLinkedBook, book, contacts[i]);
+        micro_t_span *span2 = on_linked_book_ct_m_time(&addContactToLinkedBook, book, contacts[i]);
+        micro_t_span *span3 = on_linked_book_ct_m_time(&addContactToLinkedBook, book, contacts[i]);
 
-        addContactToLinkedBook(book, contacts[i]);
+        micro_t_span *avg = calc_average(span1, span2, span3);
 
         printf("element %d:", i);
-        make_time_measurement(start, "");
+        make_time_measurement(avg, "");
+
+        delete_t_span(span1);
+        delete_t_span(span2);
+        delete_t_span(span3);
+        delete_t_span(avg);
     }
-    return book;
+    deleteLinkedBook(&book);
 }
 
 bTBook *measure_treebook_add_el(contactStr **contacts) {

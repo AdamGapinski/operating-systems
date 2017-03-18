@@ -17,23 +17,25 @@ short *parseDate(char *string);
 
 void parseContactLine(char *line, contactStr **contacts, int lineNum) ;
 
-bTBook *measure_tree_book_creation(contactStr **contacts, int contactsCount) ;
+void *measure_treebook_creation(contactStr **contacts);
 
-linkedBook *measureSingleLinkedBook(contactStr **pStr, const int contactsCount);
+void *measure_link_add_el(contactStr **pStr);
 
-bTBook *measureSingleBTreeBook(contactStr **pStr, const int records) ;
+void *measure_treebook_add_el(contactStr **pStr);
 
-void measureSortingTimeLBook(linkedBook *Book);
+void measure_link_sorting(contactStr **Book);
 
-void measureSortingTimeTBook(bTBook *book) ;
+void measure_treebook_sorting(contactStr **book) ;
 
-void measureFindingTimeLBook(linkedBook *pBook);
+void measure_link_finding_el(contactStr **pBook);
 
-void measureFindingTimeTBook(bTBook *pBook);
+void measure_treebook_finding_el(contactStr **pBook);
 
-void measureDeletingTimeLBook(linkedBook *book) ;
+void measure_link_delete_el(contactStr **book) ;
 
-void measureDeletingTimeTBook(bTBook *book);
+void measure_treebook_delete_el(contactStr **book);
+
+void measure_link_creation(contactStr **contacts) ;
 
 typedef struct timePoint {
     struct timespec *rtime;
@@ -163,34 +165,20 @@ void delete_data(contactStr **contacts) {
 int main() {
     contactStr **contacts = load_data();
 
-    measure_link_book_creation(contacts);
+    measure_link_creation(contacts);
+    measure_link_add_el(contacts);
+    measure_link_delete_el(contacts);
+    measure_link_finding_el(contacts);
+    measure_link_sorting(contacts);
 
 
-
-
-
-    measure_tree_book_creation(contacts);
-
-    linkedBook *lBook1 = measureSingleLinkedBook(linkedContacts1, RECORDS);
-    bTBook *tBook1 = measureSingleBTreeBook(binTreeContacts1, RECORDS);
-
-    measureSortingTimeLBook(lBook);
-    measureSortingTimeTBook(tBook);
-
-    measureFindingTimeLBook(lBook1);
-    measureFindingTimeTBook(tBook1);
-
-    measureDeletingTimeLBook(lBook1);
-    measureDeletingTimeTBook(tBook1);
-
-    deleteLinkedBook(&lBook);
-    deleteBTBook(&tBook);
-
-    deleteLinkedBook(&lBook1);
-    deleteBTBook(&tBook1);
+    measure_treebook_creation(contacts);
+    measure_treebook_add_el(contacts);
+    measure_treebook_delete_el(contacts);
+    measure_treebook_finding_el(contacts);
+    measure_treebook_sorting(contacts);
 
     delete_data(contacts);
-
 }
 
 typedef linkedBook* (*on_contacts_m_linked)(contactStr **contacts);
@@ -200,7 +188,7 @@ typedef void (*on_linked_book_ct_m)(linkedBook *book, contactStr *contact);
 typedef void (*on_tree_book_m)(bTBook *book);
 typedef void (*on_tree_book_m_ct_m)(bTBook *book, contactStr *contact);
 
-void measureFindingTimeLBook(linkedBook *book) {
+void measure_link_finding_el(contactStr **book) {
     sortLinkedBookByEmail(book);
 
     printf("Time of finding element in linked list address book in microseconds:\n");
@@ -215,7 +203,7 @@ void measureFindingTimeLBook(linkedBook *book) {
     make_time_measurement(start, "pessimistic: ");
 }
 
-void measureDeletingTimeLBook(linkedBook *book) {
+void measure_link_delete_el(contactStr **book) {
     sortLinkedBookByEmail(book);
 
     contactStr *toDelete = findContactByEmailLBook(book, "Aenean.eget.metus@Nullamenim.co.uk");
@@ -231,7 +219,7 @@ void measureDeletingTimeLBook(linkedBook *book) {
     make_time_measurement(start, "pessimistic: ");
 }
 
-void measureFindingTimeTBook(bTBook *book) {
+void measure_treebook_finding_el(contactStr **book) {
     sortBTBookByEmail(book);
     sortBTBookByEmail(book);
 
@@ -246,7 +234,7 @@ void measureFindingTimeTBook(bTBook *book) {
     make_time_measurement(start, "pessimistic: ");
 }
 
-void measureDeletingTimeTBook(bTBook *book) {
+void measure_treebook_delete_el(contactStr **book) {
     printf("Time of deleting element in binary tree address book in microseconds:\n");
 
     contactStr *contact = findContactByEmailBTBook(book, "Morbi@sempertellus.com");
@@ -263,13 +251,13 @@ void measureDeletingTimeTBook(bTBook *book) {
     make_time_measurement(start, "pessimistic: ");
 }
 
-void measureSortingTimeTBook(bTBook *book) {
+void measure_treebook_sorting(contactStr **book) {
     timePoint *start = createTimePoint();
     sortBTBookByEmail(book);
     make_time_measurement(start, "Time of sorting elements in binary tree address book in microseconds: ");
 }
 
-linkedBook *measureSingleLinkedBook(contactStr **contacts, int contactsCount) {
+linkedBook *measure_link_add_el(contactStr **contacts) {
     linkedBook *book = createLinkedBook();
 
     printf("Single element addition to linked list address book times in microseconds:\n");
@@ -285,7 +273,7 @@ linkedBook *measureSingleLinkedBook(contactStr **contacts, int contactsCount) {
     return book;
 }
 
-bTBook *measureSingleBTreeBook(contactStr **contacts, int contactsCount) {
+bTBook *measure_treebook_add_el(contactStr **contacts) {
     bTBook *book = createBTBook();
 
     printf("Single element addition to binary tree address book times in microseconds:\n");
@@ -383,43 +371,31 @@ micro_t_span *on_tree_book_ct_m_time(on_tree_book_m_ct_m method, bTBook *book, c
     return result;
 }
 
-void create_linked_book(contactStr **contacts) {
+linkedBook *create_linked_book(contactStr **contacts) {
     linkedBook *book = createLinkedBook();
 
     for(int i = 0; i < RECORDS; ++i) {
         addContactToLinkedBook(book, contacts[i]);
     }
-}
-
-void *measure_link_book_creation(contactStr **contacts) {
-    linkedBook *book = createLinkedBook();
-
-    timePoint *start1 = createTimePoint();
-    for(int i = 0; i < RECORDS; ++i) {
-        addContactToLinkedBook(book, contacts[i]);
-    }
-    timePoint *end1 = createTimePoint();
-    micro_t_span *span1 = create_time_span(start1, end1);
-
-    timePoint *start2 = createTimePoint();
-    for(int i = 0; i < RECORDS; ++i) {
-        addContactToLinkedBook(book, contacts[i]);
-    }
-    timePoint *end2 = createTimePoint();
-    micro_t_span *span2 = create_time_span(start2, end2);
-
-    timePoint *start3 = createTimePoint();
-    for(int i = 0; i < RECORDS; ++i) {
-        addContactToLinkedBook(book, contacts[i]);
-    }
-    timePoint *end3 = createTimePoint();
-
-    make_time_measurement(start, "Linked address book with 1000 records creation time in microseconds:");
 
     return book;
 }
+void measure_link_creation(contactStr **contacts) {
+    micro_t_span *span1 = on_contacts_m_linked_time(&create_linked_book, contacts);
+    micro_t_span *span2 = on_contacts_m_linked_time(&create_linked_book, contacts);
+    micro_t_span *span3 = on_contacts_m_linked_time(&create_linked_book, contacts);
 
-bTBook *measure_tree_book_creation(contactStr **contacts, int contactsCount) {
+    micro_t_span *avg = calc_average(span1, span2, span3);
+
+    make_time_measurement(avg, "Linked address book with 1000 records creation time in microseconds:");
+
+    delete_t_span(span1);
+    delete_t_span(span2);
+    delete_t_span(span3);
+    delete_t_span(avg);
+}
+
+bTBook *measure_treebook_creation(contactStr **contacts) {
     timePoint *start = createTimePoint();
     bTBook *book = createBTBook();
     for(int i = 0; i < contactsCount; ++i) {
@@ -472,7 +448,7 @@ short *parseDate(char *string) {
     return parsedDate;
 }
 
-void measureSortingTimeLBook(linkedBook *Book) {
+void measure_link_sorting(contactStr **Book) {
     timePoint *start = createTimePoint();
     sortLinkedBookByEmail(Book);
     make_time_measurement(start, "Time of sorting elements in linked address book in microseconds: ");

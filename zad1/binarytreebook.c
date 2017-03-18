@@ -36,7 +36,7 @@ void deleteBTBook(bTBook **pointer) {
 
 void addContactToBTBook(bTBook *book, contactStr *contact) {
     treeNode *node = malloc(sizeof(*node));
-    node->contact = contact;
+    node->contact = duplicateContact(contact);
     book->root = insertToTree(book->root, node, &compareBySurname);
 }
 

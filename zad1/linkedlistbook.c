@@ -34,7 +34,7 @@ void deleteLinkedBook(linkedBook **pointer) {
 
 void addContactToLinkedBook(linkedBook *book, contactStr *contact) {
     listNode *node = malloc(sizeof(*node));
-    node->contact = contact;
+    node->contact = duplicateContact(contact);
     insertNode(book, node);
 }
 

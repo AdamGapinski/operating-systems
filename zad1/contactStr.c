@@ -100,7 +100,7 @@ int compareByDateOfBirth(contactStr *first, contactStr *second) {
 }
 
 int compareByEmail(contactStr *first, contactStr *second) {
-    return strcmp(first->email, second->email);
+    return strcasecmp(first->email, second->email);
 }
 
 int compareByPhone(contactStr *first, contactStr *second) {

@@ -49,19 +49,6 @@ typedef struct micro_t_span {
     double stime;
 } micro_t_span;
 
-void delete_t_span(micro_t_span *span) {
-    free(span);
-}
-
-long getTimeDiffMicro(struct timeval *start, struct timeval *end) {
-    const long ONE_SEC_TO_MICRO = 1000000;
-    long result = 0;
-    result += end->tv_usec - start->tv_usec;
-    result += (end->tv_sec - start->tv_sec) * ONE_SEC_TO_MICRO;
-
-    return result;
-}
-
 micro_t_span *create_time_span(timePoint *start, timePoint *end) {
     const int SEC_TO_MICRO = 1000000;
     const int MICRO_TO_NANO = 1000;
@@ -85,6 +72,10 @@ micro_t_span *create_time_span(timePoint *start, timePoint *end) {
     result->rtime = rtime;
 
     return result;
+}
+
+void delete_t_span(micro_t_span *span) {
+    free(span);
 }
 micro_t_span *calc_average(micro_t_span *fst, micro_t_span *scd, micro_t_span *lst) {
     micro_t_span *result = malloc(sizeof(*result));
@@ -132,16 +123,8 @@ void deleteTimePoint(timePoint *point) {
     free(point);
 }
 
-void endTimeMeausure(timePoint *start, char *note) {
-    timePoint *now = createTimePoint();
-
-    printf("%s\treal:%ld\tuser:%ld\tsys:%ld\n", note,
-           getTimeDiffMicro(start->rtime, now->rtime),
-           getTimeDiffMicro(start->utime, now->utime),
-           getTimeDiffMicro(start->stime, now->stime));
-
-    deleteTimePoint(now);
-    deleteTimePoint(start);
+void make_time_measurement(micro_t_span *span, char *note) {
+    printf("%s\treal:%.3f\tuser:%.3f\tsys:%.3f\n", note, span->rtime, span->utime, span->stime);
 }
 
 int main() {
@@ -205,12 +188,12 @@ void measureFindingTimeLBook(linkedBook *book) {
     timePoint *start = createTimePoint();
 
     findContactByEmailLBook(book, "Aenean.eget.metus@Nullamenim.co.uk");
-    endTimeMeausure(start, "optimistic: ");
+    save_time_msrmnt(start, "optimistic: ");
 
     start = createTimePoint();
     findContactByEmailLBook(book, "vulputate@penatibuset.co.uk");
 
-    endTimeMeausure(start, "pessimistic: ");
+    save_time_msrmnt(start, "pessimistic: ");
 }
 
 void measureDeletingTimeLBook(linkedBook *book) {
@@ -221,12 +204,12 @@ void measureDeletingTimeLBook(linkedBook *book) {
     printf("Time of deleting element in linked list address book in microseconds:\n");
     timePoint *start = createTimePoint();
     deleteContactLinkedBook(book, &toDelete);
-    endTimeMeausure(start, "optimistic: ");
+    save_time_msrmnt(start, "optimistic: ");
 
     toDelete = findContactByEmailLBook(book, "vulputate@penatibuset.co.uk");
     start = createTimePoint();
     deleteContactLinkedBook(book, &toDelete);
-    endTimeMeausure(start, "pessimistic: ");
+    save_time_msrmnt(start, "pessimistic: ");
 }
 
 void measureFindingTimeTBook(bTBook *book) {
@@ -237,11 +220,11 @@ void measureFindingTimeTBook(bTBook *book) {
 
     timePoint *start = createTimePoint();
     findContactByEmailBTBook(book, "Aenean.eget.metus@Nullamenim.co.uk");
-    endTimeMeausure(start, "optimistic: ");
+    save_time_msrmnt(start, "optimistic: ");
 
     start = createTimePoint();
     findContactByEmailBTBook(book, "vulputate@penatibuset.co.uk");
-    endTimeMeausure(start, "pessimistic: ");
+    save_time_msrmnt(start, "pessimistic: ");
 }
 
 void measureDeletingTimeTBook(bTBook *book) {
@@ -251,20 +234,20 @@ void measureDeletingTimeTBook(bTBook *book) {
 
     timePoint* start = createTimePoint();
     deleteContactBTBook(book, &contact);
-    endTimeMeausure(start, "optimistic: ");
+    save_time_msrmnt(start, "optimistic: ");
 
     sortBTBookByEmail(book);
     contact = findContactByEmailBTBook(book, "vulputate@penatibuset.co.uk");
 
     start = createTimePoint();
     deleteContactBTBook(book, &contact);
-    endTimeMeausure(start, "pessimistic: ");
+    save_time_msrmnt(start, "pessimistic: ");
 }
 
 void measureSortingTimeTBook(bTBook *book) {
     timePoint *start = createTimePoint();
     sortBTBookByEmail(book);
-    endTimeMeausure(start, "Time of sorting elements in binary tree address book in microseconds: ");
+    save_time_msrmnt(start, "Time of sorting elements in binary tree address book in microseconds: ");
 }
 
 linkedBook *measureSingleLinkedBook(contactStr **contacts, int contactsCount) {
@@ -278,7 +261,7 @@ linkedBook *measureSingleLinkedBook(contactStr **contacts, int contactsCount) {
         addContactToLinkedBook(book, contacts[i]);
 
         printf("element %d:", i);
-        endTimeMeausure(start, "");
+        save_time_msrmnt(start, "");
     }
     return book;
 }
@@ -294,7 +277,7 @@ bTBook *measureSingleBTreeBook(contactStr **contacts, int contactsCount) {
         addContactToBTBook(book, contacts[i]);
 
         printf("element %d:", i);
-        endTimeMeausure(start, "");
+        save_time_msrmnt(start, "");
     }
     return book;
 }
@@ -305,7 +288,7 @@ linkedBook *measureLinkedBookCreation(contactStr **contacts, int contactsCount) 
     for(int i = 0; i < contactsCount; ++i) {
         addContactToLinkedBook(book, contacts[i]);
     }
-    endTimeMeausure(start, "Linked address book with 1000 records creation time in microseconds:");
+    save_time_msrmnt(start, "Linked address book with 1000 records creation time in microseconds:");
 
     return book;
 }
@@ -316,7 +299,7 @@ bTBook *measureBTBookCreation(contactStr **contacts, int contactsCount) {
     for(int i = 0; i < contactsCount; ++i) {
         addContactToBTBook(book, contacts[i]);
     }
-    endTimeMeausure(start, "Binary tree address book with 1000 records creation time in microseconds:");
+    save_time_msrmnt(start, "Binary tree address book with 1000 records creation time in microseconds:");
 
     return book;
 }
@@ -366,6 +349,6 @@ short *parseDate(char *string) {
 void measureSortingTimeLBook(linkedBook *Book) {
     timePoint *start = createTimePoint();
     sortLinkedBookByEmail(Book);
-    endTimeMeausure(start, "Time of sorting elements in linked address book in microseconds: ");
+    save_time_msrmnt(start, "Time of sorting elements in linked address book in microseconds: ");
 }
 

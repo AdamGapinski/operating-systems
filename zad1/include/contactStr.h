@@ -25,6 +25,7 @@ typedef struct contactStr {
 
 contactStr *createContact(char *name, char *surname, char *email, char *phone, short day, short month, short year,
                               char *country, char *city, char *streetAddress, char *postalCode);
+contactStr *duplicateContact(contactStr *to_duplicate);
 void deleteContact(contactStr **contact);
 void printContact(contactStr *contact);
 

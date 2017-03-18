@@ -20,6 +20,23 @@ contactStr *createContact(char *name, char *surname, char *email, char *phone, s
     return contact;
 }
 
+contactStr *duplicateContact(contactStr *to_duplicate) {
+    contactStr *result = malloc(sizeof(*result));
+    result->name = strdup(to_duplicate->name);
+    result->surname = strdup(to_duplicate->surname);
+    result->email = strdup(to_duplicate->email);
+    result->phone = strdup(to_duplicate->phone);
+    result->dateOfBirth = createDate(to_duplicate->dateOfBirth->day,
+                                     to_duplicate->dateOfBirth->month,
+                                     to_duplicate->dateOfBirth->year);
+    result->address = createAddress(to_duplicate->address->country,
+                                    to_duplicate->address->city,
+                                    to_duplicate->address->streetAddress,
+                                    to_duplicate->address->postalCode);
+
+    return result;
+}
+
 void printContact(contactStr *contact) {
     if (contact == NULL) return;
     printf("[Name: %s, surname: %s, email: %s, phone: %s, date of birth: %d.%d.%d\nAddress: %s %s %s %s]\n",

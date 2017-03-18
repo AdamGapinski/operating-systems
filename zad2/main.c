@@ -5,6 +5,7 @@
 #include <sys/resource.h>
 #include <sys/time.h>
 #include <sys/times.h>
+#include <time.h>
 #include "../zad1/include/linkedlistbook.h"
 #include "../zad1/include/binarytreebook.h"
 
@@ -37,27 +38,34 @@ void measureDeletingTimeLBook(linkedBook *book) ;
 void measureDeletingTimeTBook(bTBook *book);
 
 typedef struct timePoint {
-    struct timeval *rtime;
+    struct timespec *rtime;
     struct timeval *stime;
     struct timeval *utime;
 } timePoint;
 
 timePoint *createTimePoint() {
-    timePoint *start = malloc(sizeof(*start));
-    start->rtime = malloc(sizeof(struct timeval));
-    start->stime = malloc(sizeof(struct timeval));
-    start->utime = malloc(sizeof(struct timeval));
-    struct rusage buff;
+    timePoint *point = malloc(sizeof(*point));
+    point->rtime = malloc(sizeof(*point->rtime));
+    point->stime = malloc(sizeof(*point->stime));
+    point->utime = malloc(sizeof(*point->utime));
+    clock_gettime(CLOCK_MONOTONIC, point->rtime);
 
-    gettimeofday(start->rtime, NULL);
-    getrusage(RUSAGE_SELF, &buff);
+    struct rusage buff_ust;
+    getrusage(RUSAGE_SELF, &buff_ust);
 
-    start->stime->tv_sec = buff.ru_stime.tv_sec;
-    start->stime->tv_usec = buff.ru_stime.tv_usec;
-    start->utime->tv_sec = buff.ru_utime.tv_sec;
-    start->utime->tv_usec = buff.ru_utime.tv_usec;
+    point->stime->tv_sec = buff_ust.ru_stime.tv_sec;
+    point->stime->tv_usec = buff_ust.ru_stime.tv_usec;
+    point->utime->tv_sec = buff_ust.ru_utime.tv_sec;
+    point->utime->tv_usec = buff_ust.ru_utime.tv_usec;
 
-    return start;
+    return point;
+}
+
+void deleteTimePoint(timePoint *point) {
+    free(point->rtime);
+    free(point->stime);
+    free(point->utime);
+    free(point);
 }
 
 long getTimeDiffMicro(struct timeval *start, struct timeval *end) {
@@ -77,15 +85,8 @@ void endTimeMeausure(timePoint *start, char *note) {
            getTimeDiffMicro(start->utime, now->utime),
            getTimeDiffMicro(start->stime, now->stime));
 
-    free(now->rtime);
-    free(now->stime);
-    free(now->utime);
-    free(now);
-
-    free(start->stime);
-    free(start->utime);
-    free(start->rtime);
-    free(start);
+    deleteTimePoint(now);
+    deleteTimePoint(start);
 }
 
 int main() {

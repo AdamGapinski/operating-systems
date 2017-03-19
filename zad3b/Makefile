@@ -7,7 +7,7 @@ MAINDIR=../zad2
 ODIR=./obj
 
 all:	
-	make clean -C ../zad1
+	make clean -C $(LDIR)
 	make clean ; rm -f results.txt
 	make runopt OPT=-O0
 	make runopt OPT=-O1
@@ -26,7 +26,7 @@ runopt: mainstatic mainshared maindynamic
 	./maindynamic >> results.txt
 	printf "\n\n\n" >> results.txt
 	make clean
-	make clean -C ../zad1
+	make clean -C $(LDIR)
 
 mainstatic: $(ODIR)/main.o $(ODIR)/t_measurement.o $(LDIR)/libaddressbookstatic.a
 	$(CC) $(CFLAGS) $(ODIR)/main.o $(ODIR)/t_measurement.o -o $@ -laddressbookstatic -L$(LDIR)/
@@ -38,10 +38,10 @@ maindynamic: $(ODIR)/main_dynamic.o $(ODIR)/t_measurement.o $(LDIR)/libaddressbo
 	$(CC) $(CFLAGS) $(ODIR)/main_dynamic.o $(ODIR)/t_measurement.o -o $@ -ldl
 
 $(LDIR)/libaddressbookstatic.a:
-	make OPT=$(OPT) -C ../zad1 clean libaddressbookstatic.a
+	make OPT=$(OPT) -C ../zad1 libaddressbookstatic.a
 
 $(LDIR)/libaddressbook.so:
-	make OPT=$(OPT) -C ../zad1 clean libaddressbook.so
+	make OPT=$(OPT) -C ../zad1 libaddressbook.so
 
 $(ODIR)/main.o: $(MAINDIR)/main.c $(IDIR)/linkedlistbook.h $(IDIR)/binarytreebook.h $(MAIN_IDIR)/t_measurement.h
 	$(CC) $(CFLAGS) $(OPT) -c -fPIC $< -o $@

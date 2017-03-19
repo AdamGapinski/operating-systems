@@ -2,10 +2,9 @@
 #include <stdlib.h>
 #include <memory.h>
 #include <errno.h>
-#include "../zad1/include/linkedlistbook.h"
-#include "../zad1/include/binarytreebook.h"
+#include <dlfcn.h>
 #include "include/t_measurement.h"
-#include "dlfcn.h"
+#include "../zad1/include/structures.h"
 
 const int MAX_LINE_LENGTH = 200;
 const int CONTACT_STR_FIELDS = 9;
@@ -43,17 +42,26 @@ contactStr **load_data() ;
 
 void delete_data(contactStr **contacts) ;
 
-int main() {
-    contactStr **contacts = load_data();
+void* open_linkbook_lib_functions();
 
+void* open_treebook_lib_functions();
+
+void close_lib(void *handler) ;
+
+int main() {
+    void *handler = open_linkbook_lib_functions();
+
+    contactStr **contacts = load_data();
     measure_linkbook_creation(contacts);
     measure_linkbook_add_el(contacts);
     measure_linkbook_delete_el(contacts);
     measure_linkbook_finding_el(contacts);
     measure_linkbook_sorting(contacts);
+    close_lib(handler);
 
     printf("\n");
 
+    handler = open_treebook_lib_functions();
     measure_treebook_creation(contacts);
     measure_treebook_add_el(contacts);
     measure_treebook_delete_el(contacts);
@@ -61,6 +69,99 @@ int main() {
     measure_treebook_sorting(contacts);
 
     delete_data(contacts);
+    close_lib(handler);
+}
+
+contactStr *(*createContact)(char*, char*, char*, char*, short, short, short, char*, char*, char*, char*);
+void (*deleteContact)(contactStr**);
+linkedBook* (*createLinkedBook)();
+void (*deleteLinkedBook)(linkedBook**);
+void (*addContactToLinkedBook)(linkedBook*, contactStr*);
+void (*deleteContactLinkedBook)(linkedBook*, contactStr**);
+contactStr *(*findContactByEmailLBook)(linkedBook*, char*);
+void (*sortLinkedBookBySurname)(linkedBook*);
+void (*sortLinkedBookByEmail)(linkedBook*);
+
+bTBook* (*createBTBook)();
+void (*deleteBTBook)(bTBook**);
+void (*addContactToBTBook)(bTBook*, contactStr*);
+void (*deleteContactBTBook)(bTBook*, contactStr**);
+contactStr* (*findContactByEmailBTBook)(bTBook*, char*);
+void (*sortBTBookBySurname)(bTBook*);
+void (*sortBTBookByEmail)(bTBook*);
+
+void *open_function(void *handle, char *function_name) {
+    char *err;
+    void *result = dlsym(handle, function_name);
+
+    err = dlerror();
+    if (err != NULL) {
+        fprintf(stderr, "Error: %s\n", err);
+        exit(EXIT_FAILURE);
+    }
+
+    return result;
+}
+
+void *open_linkbook_lib_functions() {
+    void *handler = dlopen("../zad1/libaddressbook.so", RTLD_LAZY);
+    if (handler == NULL) {
+        fprintf(stderr, "Error: %s\n", dlerror());
+        exit(EXIT_FAILURE);
+    }
+
+    createLinkedBook = (linkedBook* (*)())
+            open_function(handler, "createLinkedBook");
+    deleteLinkedBook = (void (*)(linkedBook**))
+            open_function(handler, "deleteLinkedBook");
+    addContactToLinkedBook = (void (*)(linkedBook*, contactStr*))
+            open_function(handler, "addContactToLinkedBook");
+    deleteContactLinkedBook = (void (*)(linkedBook*, contactStr**))
+            open_function(handler, "deleteContactLinkedBook");
+    findContactByEmailLBook = (contactStr *(*)(linkedBook*, char*))
+            open_function(handler, "findContactByEmailLBook");
+    sortLinkedBookBySurname = (void (*)(linkedBook*))
+            open_function(handler, "sortLinkedBookBySurname");
+    sortLinkedBookByEmail = (void (*)(linkedBook*))
+            open_function(handler, "sortLinkedBookByEmail");
+    createContact = (contactStr *(*)(char*, char*, char*, char*, short, short, short, char*, char*, char*, char*))
+            open_function(handler, "createContact");
+    deleteContact = (void (*)(contactStr**))
+            open_function(handler, "deleteContact");
+    return handler;
+}
+
+void close_lib(void *handler) {
+    dlclose(handler);
+}
+
+void *open_treebook_lib_functions() {
+    void *handler = dlopen("../zad1/libaddressbook.so", RTLD_LAZY);
+    if (handler == NULL) {
+        fprintf(stderr, "Error: %s\n", dlerror());
+        exit(EXIT_FAILURE);
+    }
+
+    createBTBook = (bTBook *(*)())
+            open_function(handler, "createBTBook");
+    deleteBTBook = (void (*)(bTBook **))
+            open_function(handler, "deleteBTBook");
+    addContactToBTBook = (void (*)(bTBook *, contactStr *))
+            open_function(handler, "addContactToBTBook");
+    deleteContactBTBook = (void (*)(bTBook *, contactStr **))
+            open_function(handler, "deleteContactBTBook");
+    findContactByEmailBTBook = (contactStr *(*)(bTBook *, char *))
+            open_function(handler, "findContactByEmailBTBook");
+    sortBTBookBySurname = (void (*)(bTBook *))
+            open_function(handler, "sortBTBookBySurname");
+    sortBTBookByEmail = (void (*)(bTBook *))
+            open_function(handler, "sortBTBookByEmail");
+    createContact = (contactStr *(*)(char*, char*, char*, char*, short, short, short, char*, char*, char*, char*))
+            open_function(handler, "createContact");
+    deleteContact = (void (*)(contactStr**))
+            open_function(handler, "deleteContact");
+
+    return handler;
 }
 
 contactStr **load_data() {
@@ -208,9 +309,9 @@ void measure_linkbook_add_el(contactStr **contacts) {
     micro_t_span *span3;
     micro_t_span *avg;
     for(int i = 0; i < RECORDS; ++i) {
-        span1 = on_linked_book_ct_m_time(&addContactToLinkedBook, book1, contacts[i]);
-        span2 = on_linked_book_ct_m_time(&addContactToLinkedBook, book2, contacts[i]);
-        span3 = on_linked_book_ct_m_time(&addContactToLinkedBook, book3, contacts[i]);
+        span1 = on_linked_book_ct_m_time(addContactToLinkedBook, book1, contacts[i]);
+        span2 = on_linked_book_ct_m_time(addContactToLinkedBook, book2, contacts[i]);
+        span3 = on_linked_book_ct_m_time(addContactToLinkedBook, book3, contacts[i]);
 
         avg = calc_average(span1, span2, span3);
 
@@ -320,13 +421,13 @@ void measure_linkbook_sorting(contactStr **contacts) {
     linkedBook *book = create_linked_book(contacts);
 
     sortLinkedBookBySurname(book);
-    micro_t_span *span1 = on_linked_book_m_time(&sortLinkedBookByEmail, book);
+    micro_t_span *span1 = on_linked_book_m_time(sortLinkedBookByEmail, book);
 
     sortLinkedBookBySurname(book);
-    micro_t_span *span2 = on_linked_book_m_time(&sortLinkedBookByEmail, book);
+    micro_t_span *span2 = on_linked_book_m_time(sortLinkedBookByEmail, book);
 
     sortLinkedBookBySurname(book);
-    micro_t_span *span3 = on_linked_book_m_time(&sortLinkedBookByEmail, book);
+    micro_t_span *span3 = on_linked_book_m_time(sortLinkedBookByEmail, book);
 
     micro_t_span *avg = calc_average(span1,span2,span3);
 
@@ -372,9 +473,9 @@ void measure_treebook_add_el(contactStr **contacts) {
     bTBook *book3 = createBTBook();
     printf("Single elements additions to binary tree address book times in microseconds:\n");
     for(int i = 0; i < RECORDS; ++i) {
-        micro_t_span *span1 = on_tree_book_ct_m_time(&addContactToBTBook, book1, contacts[i]);
-        micro_t_span *span2 = on_tree_book_ct_m_time(&addContactToBTBook, book2, contacts[i]);
-        micro_t_span *span3 = on_tree_book_ct_m_time(&addContactToBTBook, book3, contacts[i]);
+        micro_t_span *span1 = on_tree_book_ct_m_time(addContactToBTBook, book1, contacts[i]);
+        micro_t_span *span2 = on_tree_book_ct_m_time(addContactToBTBook, book2, contacts[i]);
+        micro_t_span *span3 = on_tree_book_ct_m_time(addContactToBTBook, book3, contacts[i]);
 
         micro_t_span *avg = calc_average(span1, span2, span3);
 
@@ -481,13 +582,13 @@ void measure_treebook_sorting(contactStr **contacts) {
     bTBook *book = create_treebook(contacts);
 
     sortBTBookBySurname(book);
-    micro_t_span *span1 = on_tree_book_m_time(&sortBTBookByEmail, book);
+    micro_t_span *span1 = on_tree_book_m_time(sortBTBookByEmail, book);
 
     sortBTBookBySurname(book);
-    micro_t_span *span2 = on_tree_book_m_time(&sortBTBookByEmail, book);
+    micro_t_span *span2 = on_tree_book_m_time(sortBTBookByEmail, book);
 
     sortBTBookBySurname(book);
-    micro_t_span *span3 = on_tree_book_m_time(&sortBTBookByEmail, book);
+    micro_t_span *span3 = on_tree_book_m_time(sortBTBookByEmail, book);
 
     micro_t_span *avg = calc_average(span1,span2,span3);
 

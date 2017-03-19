@@ -70,6 +70,8 @@ int main() {
 
     delete_data(contacts);
     close_lib(handler);
+
+    return 0;
 }
 
 contactStr *(*createContact)(char*, char*, char*, char*, short, short, short, char*, char*, char*, char*);

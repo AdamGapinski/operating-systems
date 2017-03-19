@@ -61,6 +61,8 @@ int main() {
     measure_treebook_sorting(contacts);
 
     delete_data(contacts);
+
+    return 0;
 }
 
 contactStr **load_data() {

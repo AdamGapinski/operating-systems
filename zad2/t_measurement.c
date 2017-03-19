@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <sys/resource.h>
-#include "t_measurement.h"
+#include "include/t_measurement.h"
 
 micro_t_span *create_time_span(timePoint *start, timePoint *end) {
     const int SEC_TO_MICRO = 1000000;

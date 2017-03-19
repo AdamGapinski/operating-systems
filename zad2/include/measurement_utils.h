@@ -1,7 +1,7 @@
 #ifndef ADDRESSBOOK_MEASUREMENT_UTILS_H
 #define ADDRESSBOOK_MEASUREMENT_UTILS_H
-#include "../zad1/include/linkedlistbook.h"
-#include "../zad1/include/binarytreebook.h"
+#include "../../zad1/include/linkedlistbook.h"
+#include "../../zad1/include/binarytreebook.h"
 #include "t_measurement.h"
 
 typedef linkedBook* (*on_contacts_m_linked)(contactStr **contacts);

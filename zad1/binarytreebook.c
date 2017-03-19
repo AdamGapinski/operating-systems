@@ -46,11 +46,19 @@ void deleteContactBTBook(bTBook *book, contactStr **contact) {
 }
 
 contactStr *findContactByPhoneBTBook(bTBook *book, char *phone) {
-    return findContactNodeByPhone(book->root, phone)->contact;
+    treeNode *node = findContactNodeByPhone(book->root, phone);
+    if (node == NULL) {
+        return NULL;
+    }
+    return node->contact;
 }
 
 contactStr *findContactByEmailBTBook(bTBook *book, char *email) {
-    return findContactNodeByEmail(book->root, email)->contact;
+    treeNode *node = findContactNodeByEmail(book->root, email);
+    if (node == NULL) {
+        return NULL;
+    }
+    return node->contact;
 }
 
 void sortBTBookBySurname(bTBook *book) {

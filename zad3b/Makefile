@@ -1,27 +1,52 @@
-CFLAGS=-std=gnu99 -Wall
-LDIR=../zad1/
-INCDIR=../zad1/include/
-MAINDIR=../zad2/
+CC=gcc
+CFLAGS=-Wall
+OPT=
+LDIR=../zad1
+IDIR=../zad1/include
+MAIN_IDIR=../zad2/include
+MAINDIR=../zad2
+ODIR=./obj
 
-test: mainstatic mainshared
-	echo "static library results, main.c optimalization flag set:$(OPT)\n" >> results.txt
+all:	
+	make clean ; rm -f results.txt
+	make runopt OPT=-O0
+	make runopt OPT=-O1
+	make runopt OPT=-Os
+	make runopt OPT=-O2
+	make runopt OPT=-O3
+	make runopt OPT=-Ofast
+
+runopt: mainstatic mainshared 
+	printf "Optimization flag $(OPT):\n" >> results.txt
+	printf "static library results:\n" >> results.txt
 	./mainstatic >> results.txt
-	echo "\nshared library results, main.c optimalization flag set:$(OPT)\n" >> results.txt
+	printf "\n\nshared library results:\n" >> results.txt
 	./mainshared >> results.txt
-	
-mainstatic: main.o libs
-	gcc main.o -o mainstatic -laddressbook -L$(LDIR) -I$(INCDIR) -static
+	printf "\n\n\n" >> results.txt
+	make clean
 
-libs:
-	cd $(LDIR) && make
+mainstatic: $(ODIR)/main.o $(ODIR)/measurement_utils.o $(ODIR)/t_measurement.o $(LDIR)/libaddressbookstatic.a
+	$(CC) $(CFLAGS) $(ODIR)/main.o $(ODIR)/measurement_utils.o $(ODIR)/t_measurement.o -o $@ -laddressbookstatic -L$(LDIR)/ -I$(IDIR)/
 
-mainshared: main.o
-	gcc main.o -o mainshared -laddressbook -L$(LDIR) -I$(INCDIR) -Wl,-rpath,$(LDIR)
+mainshared: $(ODIR)/main.o $(ODIR)/measurement_utils.o $(ODIR)/t_measurement.o $(LDIR)/libaddressbook.so
+	$(CC) $(CFLAGS) $(ODIR)/main.o $(ODIR)/measurement_utils.o $(ODIR)/t_measurement.o -o $@ -laddressbook -L$(LDIR)/ -I$(IDIR)/ -Wl,-rpath,$(LDIR)/
 
-main.o: $(MAINDIR)main.c $(INCDIR)linkedlistbook.h $(INCDIR)binarytreebook.h
-	gcc $(CFLAGS) $(OPT) -Wall -c -fPIC $(MAINDIR)main.c
+$(LDIR)/libaddressbookstatic.a:
+	make -C ../zad1 libaddressbookstatic.a
+
+$(LDIR)/libaddressbook.so:
+	make -C ../zad1 libaddressbook.so
+
+$(ODIR)/main.o: $(MAINDIR)/main.c $(IDIR)/linkedlistbook.h $(IDIR)/binarytreebook.h $(MAIN_IDIR)/measurement_utils.h $(MAIN_IDIR)/t_measurement.h
+	$(CC) $(CFLAGS) $(OPT) -c -fPIC $< -o $@
+
+$(ODIR)/measurement_utils.o: $(MAINDIR)/measurement_utils.c $(MAIN_IDIR)/measurement_utils.h
+	$(CC) $(CFLAGS) $(OPT) -c -fPIC $< -o $@
+
+$(ODIR)/t_measurement.o: $(MAINDIR)/t_measurement.c $(MAIN_IDIR)/t_measurement.h
+	$(CC) $(CFLAGS) $(OPT) -c -fPIC $< -o $@
 
 clean:
-	rm -f *.o results.txt mainstatic mainshared maindynamic
+	rm -rf *.o $(ODIR)/*.o mainstatic mainshared maindynamic
 
-.PHONY: test clean libs
+.PHONY: clean all runopt

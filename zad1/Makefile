@@ -1,23 +1,25 @@
-CFLAGS=-std=gnu99 -Wall
-INCDIR=./include/
-all: libaddressbook.so libaddressbook.a
+CC=gcc
+CFLAGS=-Wall
+IDIR=./include
+ODIR=./obj
+all: libaddressbook.so libaddressbookstatic.a
 
-libaddressbook.so: binarytreebook.o linkedlistbook.o contactStr.o
-	gcc $(CFLAGS) -shared -fPIC -o libaddressbook.so binarytreebook.o linkedlistbook.o contactStr.o
+libaddressbook.so: $(ODIR)/binarytreebook.o $(ODIR)/linkedlistbook.o $(ODIR)/contactStr.o
+	$(CC) $(CFLAGS) -shared -fPIC -o $@ $^
 
-libaddressbook.a: binarytreebook.o linkedlistbook.o contactStr.o
-	ar cr -o libaddressbook.a binarytreebook.o linkedlistbook.o contactStr.o
+libaddressbookstatic.a: $(ODIR)/binarytreebook.o $(ODIR)/linkedlistbook.o $(ODIR)/contactStr.o
+	ar cr -o $@ $^
 
-binarytreebook.o: binarytreebook.c $(INCDIR)binarytreebook.h
-	gcc $(CFLAGS) -fPIC -c binarytreebook.c
+$(ODIR)/binarytreebook.o: binarytreebook.c $(IDIR)/binarytreebook.h $(IDIR)/contactStr.h
+	$(CC) $(CFLAGS) -fPIC -c binarytreebook.c -o $@
 
-linkedlistbook.o: linkedlistbook.c $(INCDIR)linkedlistbook.h
-	gcc $(CFLAGS) -fPIC -c linkedlistbook.c
+$(ODIR)/linkedlistbook.o: linkedlistbook.c $(IDIR)/linkedlistbook.h $(IDIR)/contactStr.h
+	$(CC) $(CFLAGS) -fPIC -c linkedlistbook.c -o $@
 
-contactStr.o: contactStr.c $(INCDIR)contactStr.h
-	gcc $(CFLAGS) -fPIC -c contactStr.c
+$(ODIR)/contactStr.o: contactStr.c $(IDIR)/contactStr.h
+	$(CC) $(CFLAGS) -fPIC -c contactStr.c -o $@
 
 clean:
-	rm -f *.o *.so *.a
+	rm -rf *.so *.a $(ODIR)/*.o
 
-.PHONY: clean
+.PHONY: clean all

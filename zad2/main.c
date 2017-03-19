@@ -4,8 +4,8 @@
 #include <errno.h>
 #include "../zad1/include/linkedlistbook.h"
 #include "../zad1/include/binarytreebook.h"
-#include "t_measurement.h"
-#include "measurement_utils.h"
+#include "include/t_measurement.h"
+#include "include/measurement_utils.h"
 
 const int MAX_LINE_LENGTH = 200;
 const int CONTACT_STR_FIELDS = 9;
@@ -114,7 +114,7 @@ void measure_linkbook_creation(contactStr **contacts) {
 
     micro_t_span *avg = calc_average(span1, span2, span3);
 
-    make_time_measurement(avg, "Linked address book with 1000 records creation time in microseconds:\n\t\t");
+    make_time_measurement(avg, "Linked address book with 1000 records creation time in microseconds:\n\t");
 
     delete_t_span(span1);
     delete_t_span(span2);
@@ -256,7 +256,7 @@ void measure_linkbook_sorting(contactStr **contacts) {
     micro_t_span *avg = calc_average(span1,span2,span3);
 
 
-    make_time_measurement(avg, "Time of sorting elements in linked address book in microseconds: \n\t\t");
+    make_time_measurement(avg, "Time of sorting elements in linked address book in microseconds: \n\t");
 
     delete_t_span(span1);
     delete_t_span(span2);
@@ -282,7 +282,7 @@ void measure_treebook_creation(contactStr **contacts) {
 
     micro_t_span *avg = calc_average(span1, span2, span3);
 
-    make_time_measurement(avg, "Binary tree address book with 1000 records creation time in microseconds:\n\t\t");
+    make_time_measurement(avg, "Binary tree address book with 1000 records creation time in microseconds:\n\t");
 
     delete_t_span(span1);
     delete_t_span(span2);
@@ -417,7 +417,7 @@ void measure_treebook_sorting(contactStr **contacts) {
     micro_t_span *avg = calc_average(span1,span2,span3);
 
 
-    make_time_measurement(avg, "Time of sorting elements in binary tree address book in microseconds: \n\t\t");
+    make_time_measurement(avg, "Time of sorting elements in binary tree address book in microseconds:\n\t");
 
     delete_t_span(span1);
     delete_t_span(span2);

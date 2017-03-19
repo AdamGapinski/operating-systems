@@ -1,17 +1,8 @@
 #ifndef ADDRESSBOOK_LINKEDLISTBOOK_H
 #define ADDRESSBOOK_LINKEDLISTBOOK_H
 
+#include "structures.h"
 #include "contactStr.h"
-
-typedef struct listNode {
-    contactStr *contact;
-    struct listNode *next;
-    struct listNode *previous;
-} listNode;
-
-typedef struct linkedBook {
-    listNode *head;
-} linkedBook;
 
 linkedBook *createLinkedBook();
 void deleteLinkedBook(linkedBook **pBook);

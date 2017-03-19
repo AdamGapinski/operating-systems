@@ -1,27 +1,7 @@
 #ifndef ADDRESSBOOK_CONTACT_H
 #define ADDRESSBOOK_CONTACT_H
 
-typedef struct date {
-    short day;
-    short month;
-    short year;
-} date;
-
-typedef struct addressStr {
-    char *country;
-    char *city;
-    char *streetAddress;
-    char *postalCode;
-} addressStr;
-
-typedef struct contactStr {
-    char *name;
-    char *surname;
-    char *email;
-    char *phone;
-    date *dateOfBirth;
-    addressStr *address;
-} contactStr;
+#include "structures.h"
 
 contactStr *createContact(char *name, char *surname, char *email, char *phone, short day, short month, short year,
                               char *country, char *city, char *streetAddress, char *postalCode);

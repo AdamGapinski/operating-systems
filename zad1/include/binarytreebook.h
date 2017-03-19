@@ -1,17 +1,8 @@
 #ifndef ADDRESSBOOK_BINARYTREEBOOK_H
 #define ADDRESSBOOK_BINARYTREEBOOK_H
 
+#include "structures.h"
 #include "contactStr.h"
-
-typedef struct treeNode {
-    contactStr *contact;
-    struct treeNode *right;
-    struct treeNode *left;
-} treeNode;
-
-typedef struct bTBook {
-    treeNode *root;
-} bTBook;
 
 bTBook *createBTBook();
 void deleteBTBook(bTBook **pBook);

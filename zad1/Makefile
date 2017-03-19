@@ -11,13 +11,13 @@ libaddressbookstatic.a: $(ODIR)/binarytreebook.o $(ODIR)/linkedlistbook.o $(ODIR
 	ar cr -o $@ $^
 
 $(ODIR)/binarytreebook.o: binarytreebook.c $(IDIR)/binarytreebook.h $(IDIR)/contactStr.h
-	$(CC) $(CFLAGS) -fPIC -c binarytreebook.c -o $@
+	$(CC) $(CFLAGS) $(OPT) -fPIC -c binarytreebook.c -o $@
 
 $(ODIR)/linkedlistbook.o: linkedlistbook.c $(IDIR)/linkedlistbook.h $(IDIR)/contactStr.h
-	$(CC) $(CFLAGS) -fPIC -c linkedlistbook.c -o $@
+	$(CC) $(CFLAGS) $(OPT) -fPIC -c linkedlistbook.c -o $@
 
 $(ODIR)/contactStr.o: contactStr.c $(IDIR)/contactStr.h
-	$(CC) $(CFLAGS) -fPIC -c contactStr.c -o $@
+	$(CC) $(CFLAGS) $(OPT) -fPIC -c contactStr.c -o $@
 
 clean:
 	rm -rf *.so *.a $(ODIR)/*.o

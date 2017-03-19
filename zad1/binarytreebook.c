@@ -50,7 +50,7 @@ contactStr *findContactByPhoneBTBook(bTBook *book, char *phone) {
     if (node == NULL) {
         return NULL;
     }
-    return node->contact;
+    return findContactNodeByPhone(book->root, phone)->contact;
 }
 
 contactStr *findContactByEmailBTBook(bTBook *book, char *email) {
@@ -58,7 +58,7 @@ contactStr *findContactByEmailBTBook(bTBook *book, char *email) {
     if (node == NULL) {
         return NULL;
     }
-    return node->contact;
+    return findContactNodeByEmail(book->root, email)->contact;
 }
 
 void sortBTBookBySurname(bTBook *book) {

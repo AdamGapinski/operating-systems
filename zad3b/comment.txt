@@ -1,0 +1,5 @@
+	Pomiary wykonane na roznych poziomach optymalizacji wskazuja na to,
+ze wraz ze zwiekszaniem poziomu optymalizacji kompilowanego kodu programu,
+czas wykonania poszczegolnych operacji zmalal. Przykladowo czas 
+rzeczywisty sortowania elementow w ksiazce adresowej w postaci drzewa binarnego 
+zmalal o okolo 115 mikrosekund (z 544 na 429 mikrosekund).

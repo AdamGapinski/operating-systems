@@ -43,7 +43,7 @@ $(LDIR)/libaddressbookstatic.a:
 $(LDIR)/libaddressbook.so:
 	make OPT=$(OPT) -C ../zad1 libaddressbook.so
 
-$(ODIR)/main.o: $(MAINDIR)/main.c $(IDIR)/linkedlistbook.h $(IDIR)/binarytreebook.h $(MAIN_IDIR)/t_measurement.h
+$(ODIR)/main.o: $(MAINDIR)/main.c $(IDIR)/linkedlistbook.h $(IDIR)/binarytreebook.h $(IDIR)/structures.h $(MAIN_IDIR)/t_measurement.h
 	$(CC) $(CFLAGS) $(OPT) -c -fPIC $< -o $@
 
 $(ODIR)/main_dynamic.o: $(MAINDIR)/main_dynamic.c $(IDIR)/structures.h $(MAIN_IDIR)/t_measurement.h

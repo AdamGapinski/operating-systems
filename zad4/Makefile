@@ -12,7 +12,7 @@ main: $(ODIR)/main_core.o $(ODIR)/t_measurement.o $(LDIR)/libaddressbookstatic.a
 $(LDIR)/libaddressbookstatic.a:
 	make -C ../zad1 libaddressbookstatic.a
 
-$(ODIR)/main_core.o: $(MAINDIR)/main_core.c $(IDIR)/linkedlistbook.h $(IDIR)/binarytreebook.h $(MAIN_IDIR)/t_measurement.h
+$(ODIR)/main_core.o: $(MAINDIR)/main_core.c $(IDIR)/linkedlistbook.h $(IDIR)/binarytreebook.h $(IDIR)/structures.h $(MAIN_IDIR)/t_measurement.h
 	$(CC) $(CFLAGS) -c -g -fPIC $< -o $@
 
 $(ODIR)/t_measurement.o: $(MAINDIR)/t_measurement.c $(MAIN_IDIR)/t_measurement.h

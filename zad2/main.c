@@ -6,6 +6,7 @@
 #include "../zad1/include/binarytreebook.h"
 #include "include/t_measurement.h"
 #include "include/measurement_utils.h"
+#include "dlfcn.h"
 
 const int MAX_LINE_LENGTH = 200;
 const int CONTACT_STR_FIELDS = 9;

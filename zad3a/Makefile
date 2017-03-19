@@ -18,6 +18,9 @@ mainstatic: $(ODIR)/main.o $(ODIR)/measurement_utils.o $(ODIR)/t_measurement.o $
 mainshared: $(ODIR)/main.o $(ODIR)/measurement_utils.o $(ODIR)/t_measurement.o $(LDIR)/libaddressbook.so
 	$(CC) $(CFLAGS) $(ODIR)/main.o $(ODIR)/measurement_utils.o $(ODIR)/t_measurement.o -o $@ -laddressbook -L$(LDIR)/ -I$(IDIR)/ -Wl,-rpath,$(LDIR)/
 
+maindynamic: $(ODIR)/main.o $(ODIR)/measurement_utils.o $(ODIR)/t_measurement.o
+	$(CC) $(CFLAGS) $(ODIR)/main.o $(ODIR)/measurement_utils.o $(ODIR)/t_measurement.o -ldl -o $@ 
+
 $(LDIR)/libaddressbookstatic.a:
 	make -C ../zad1 libaddressbookstatic.a
 

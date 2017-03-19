@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-Wall
+CFLAGS=-Wall -std=gnu99
 LDIR=../zad1
 IDIR=../zad1/include
 MAIN_IDIR=../zad2/include

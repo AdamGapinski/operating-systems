@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-Wall
+CFLAGS=-Wall -std=gnu99
 IDIR=./include
 ODIR=./obj
 all: libaddressbook.so libaddressbookstatic.a

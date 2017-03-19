@@ -24,10 +24,10 @@ maindynamic: $(ODIR)/main_dynamic.o $(ODIR)/t_measurement.o $(LDIR)/libaddressbo
 	$(CC) $(CFLAGS) $(ODIR)/main_dynamic.o $(ODIR)/t_measurement.o -o $@ -ldl
 
 $(LDIR)/libaddressbookstatic.a:
-	make -C ../zad1 libaddressbookstatic.a
+	make -C $(LDIR) libaddressbookstatic.a
 
 $(LDIR)/libaddressbook.so:
-	make -C ../zad1 libaddressbook.so
+	make -C $(LDIR) libaddressbook.so
 
 $(ODIR)/main.o: $(MAINDIR)/main.c $(IDIR)/linkedlistbook.h $(IDIR)/binarytreebook.h $(MAIN_IDIR)/t_measurement.h
 	$(CC) $(CFLAGS) -c -fPIC $< -o $@

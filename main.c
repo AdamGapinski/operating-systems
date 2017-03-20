@@ -97,15 +97,71 @@ void swap_records(record **first, record **second) {
     swap(&(*first)->recordno, &(*second)->recordno);
 }
 
-int main(int argc, int **argv) {
+int main(int argc, char **argv) {
+    char *set = "";
+    char *operation = "";
+    char *filename = "";
+    size_t records = 0;
+    size_t size = 0;
 
-    if (strcmp() == 0)
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "sys") == 0) {
+            set = "sys";
+        } else if (strcmp(argv[i], "lib") == 0) {
+            set = "lib";
+        } else if (strcmp(argv[i], "generate") == 0) {
+            operation = "generate";
+        } else if (strcmp(argv[i], "shuffle") == 0) {
+            operation = "shuffle";
+        } else if (strcmp(argv[i], "sort") == 0) {
+            operation = "sort";
+        } else {
+            if (strcmp(filename, "") == 0) {
+                filename = argv[i];
+            } else if (records != 0) {
+                size = (size_t) atoi(argv[i]);
+            } else {
+                records = (size_t) atoi(argv[i]);
+            }
+        }
+    }
 
-    print_records("test", 10, 10);
-    generate("test", 10, 10);
-    shuffle_sys("test", 10, 10);
-    printf("\n\n");
-    print_records("test", 10, 10);
+    if (filename == NULL) {
+        fprintf(stderr, "File name not specified.");
+        exit(EXIT_FAILURE);
+    }
+
+    if (records <= 0 || size <= 0) {
+        fprintf(stderr, "Number of records or size not specified (has to be greater than 0)");
+        exit(EXIT_FAILURE);
+    }
+
+    if (strcmp(operation, "sort") == 0) {
+        if (strcmp(set, "lib") == 0) {
+            sort_lib(filename, size, records);
+        } else if (strcmp(set, "sys") == 0) {
+            sort_sys(filename, size, records);
+        } else {
+            fprintf(stderr, "Method set not specified (sys or lib).");
+            exit(EXIT_FAILURE);
+        }
+    } else if (strcmp(operation, "shuffle") == 0) {
+        if (strcmp(set, "lib") == 0) {
+            shuffle_lib(filename, size, records);
+        } else if (strcmp(set, "sys") == 0) {
+            shuffle_sys(filename, size, records);
+        } else {
+            fprintf(stderr, "Method set not specified (sys or lib).");
+            exit(EXIT_FAILURE);
+        }
+    } else if (strcmp(operation, "generate") == 0) {
+        generate(filename, size, records);
+    } else {
+        fprintf(stderr, "Error: operation not specified.");
+        return EXIT_FAILURE;
+    }
+
+    print_records(filename, size, records);
     return 0;
 }
 

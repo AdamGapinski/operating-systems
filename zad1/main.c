@@ -114,7 +114,11 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "sort") == 0) {
             operation = "sort";
         } else {
-            if (strcmp(filename, "") == 0) {
+            if (strcmp(operation, "" ) == 0) {
+                fprintf(stderr, "Error: Specify operation before file info.\n");
+                exit(EXIT_FAILURE);
+            }
+            else if (strcmp(filename, "") == 0) {
                 filename = argv[i];
             } else if (records != 0) {
                 size = (size_t) atoi(argv[i]);
@@ -132,7 +136,7 @@ int main(int argc, char **argv) {
         } else if (strcmp(set, "sys") == 0) {
             sort_sys(filename, size, records);
         } else {
-            fprintf(stderr, "Method set not specified (sys or lib).\n");
+            fprintf(stderr, "Error: Method set not specified (sys or lib).\n");
             exit(EXIT_FAILURE);
         }
 
@@ -144,12 +148,11 @@ int main(int argc, char **argv) {
         } else if (strcmp(set, "sys") == 0) {
             shuffle_sys(filename, size, records);
         } else {
-            fprintf(stderr, "Method set not specified (sys or lib)\n");
+            fprintf(stderr, "Error: Method set not specified (sys or lib)\n");
             exit(EXIT_FAILURE);
         }
 
     } else if (strcmp(operation, "generate") == 0) {
-
         validate_file_info(filename, size, records);
         generate(filename, size, records);
 

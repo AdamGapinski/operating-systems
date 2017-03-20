@@ -3,23 +3,22 @@
 #include <fcntl.h>
 #include <memory.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 
 void print_menu();
 
-long long int chose_char_num();
+void set_read_lock(int fd) ;
 
-void set_read_lock(char *filename) ;
+void set_write_lock(int fd) ;
 
-void set_write_lock(char *filename) ;
+void read_char(int fd) ;
 
-void read_char(char *filename) ;
+void write_char(int fd) ;
 
-void write_char(char *filename) ;
+void lock_info(int fd) ;
 
-void lock_info(char *filename) ;
-
-void release_lock(char *filename) ;
+void release_lock(int fd) ;
 
 int main(int argc, char **argv) {
     if (argc != 2) {
@@ -27,36 +26,37 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
     char *filename = argv[1];
-    if (access(filename, F_OK) == -1) {
+    int fd;
+    if ((fd = open(filename, O_RDWR)) == -1) {
         perror("Error");
         exit(EXIT_FAILURE);
     }
 
     char *buff = calloc(20, sizeof(*buff));
-    int exit = 0;
 
-    while (exit == 0) {
+    while (1) {
         print_menu();
         scanf("%s", buff);
-        if (strcmp(buff, "7") == 0) {
-            exit = 1;
-        } else if (strcmp(buff, "1") == 0) {
-            set_read_lock(filename);
+        if (strcmp(buff, "1") == 0) {
+            set_read_lock(fd);
         } else if (strcmp(buff, "2") == 0) {
-            set_write_lock(filename);
+            set_write_lock(fd);
         } else if (strcmp(buff, "3") == 0) {
-            lock_info(filename);
+            lock_info(fd);
         } else if (strcmp(buff, "4") == 0) {
-            release_lock(filename);
+            release_lock(fd);
         } else if (strcmp(buff, "5") == 0) {
-            read_char(filename);
+            read_char(fd);
         } else if (strcmp(buff, "6") == 0) {
-            write_char(filename);
+            write_char(fd);
+        } else if (strcmp(buff, "7") == 0) {
+            break;
         } else {
-            fprintf(stderr, "Unrecognized option; %s\n", buff);
+            fprintf(stderr, "Unrecognized option: %s\n", buff);
         }
     }
 
+    close(fd);
     free(buff);
 }
 
@@ -71,13 +71,11 @@ void print_menu() {
     printf("7. wyjscie\n");
 }
 
-int open_file(char *filename) ;
-
 char chose_char();
 
-void write_char(char *filename) {
-    int fd = open(filename, O_RDWR);
+long chose_char_num() ;
 
+void write_char(int fd) {
     long long int char_n = chose_char_num();
     lseek(fd, char_n, SEEK_SET);
 
@@ -86,10 +84,6 @@ void write_char(char *filename) {
 
     if (write(fd, to_write, 1) == -1) {
         perror("Error, while writing char");
-    }
-
-    if (close(fd) == -1) {
-        perror("Error");
     }
 
     free(to_write);
@@ -106,9 +100,7 @@ char chose_char() {
     return result;
 }
 
-void read_char(char *filename) {
-    int fd = open_file(filename);
-
+void read_char(int fd) {
     long long int char_n = chose_char_num();
     lseek(fd, char_n, SEEK_SET);
 
@@ -118,29 +110,64 @@ void read_char(char *filename) {
         perror("Error, while reading char");
     }
 
-    if (close(fd) == -1) {
-        perror("Error");
-    }
-
     printf("Odczytany znak to %s\n", to_read);
     free(to_read);
 }
 
-void release_lock(char *filename) {
-    /*int fd = open_file(filename);
-
-    if (close(fd) == -1) {
-        perror("Error");
-    }*/
+void release_lock(int fd) {
+    /*chose_char_num()*/
 }
 
-void lock_info(char *filename) {
-    int fd = open_file(filename);
+struct flock* flock_write(long l_char) ;
 
+struct flock* flock_read(long l_char) ;
 
-    if (close(fd) == -1) {
-        perror("Error");
+void print_lock_info(struct flock *lock, int fd);
+
+void lock_info(int fd) {
+    struct flock *write;
+    struct flock *read;
+    struct stat st;
+    fstat(fd, &st);
+    long size = st.st_size;
+
+    printf("%s\t%s\t%s\t%s\n", "PID", "char_num", "char", "type");
+
+    for (int i = 0; i < size; ++i) {
+        write = flock_write(i);
+        read = flock_read(i);
+
+        if ((fcntl(fd, F_GETLK, write) == -1) | (fcntl(fd, F_GETLK, read) == -1)) {
+            perror("Error while getting flock");
+            exit(EXIT_FAILURE);
+        }
+
+        if (write->l_type != F_UNLCK) {
+            print_lock_info(write, fd);
+        } else if (read->l_type != F_UNLCK) {
+            print_lock_info(read, fd);
+        }
+
+        free(write);
+        free(read);
     }
+}
+
+void print_lock_info(struct flock *lock, int fd) {
+    off_t prev_offset = lseek(fd, 0, SEEK_SET);
+    lseek(fd, lock->l_start, SEEK_SET);
+
+    char *locked = calloc(2, sizeof(*locked));
+    if(read(fd, locked, 1) == -1) {
+        perror("Error while printing lock info.");
+    };
+    if (strcmp(locked, "\00") == 0) {
+        strcpy(locked, " ");
+    }
+    char *type = lock->l_type == F_RDLCK ? "odczyt" : lock->l_type == F_WRLCK ? "zapis" : "niezdefiniowany";
+    printf("%d\t%ld\t%s\t%s\n", lock->l_pid, lock->l_start, locked, type);
+    free(locked);
+    lseek(fd, prev_offset, SEEK_SET);
 }
 
 int chose_version() {
@@ -169,83 +196,62 @@ int chose_version() {
     return result;
 }
 
-int open_file(char *filename) ;
-
 void make_lock_nowait(int fd, struct flock *fl) ;
 
 void make_lock_wait(int fd, struct flock *fl) ;
 
-struct flock* flock_write(long long l_char) ;
+struct flock* flock_write(long l_char) ;
 
-void set_write_lock(char *filename) {
+void set_write_lock(int fd) {
     int version = chose_version();
     if (version == -1 || version == 3) {
         return;
     }
     long long char_n = chose_char_num();
     struct flock *fl = flock_write(char_n);
-    int fd = open_file(filename);
 
-    if (version == 0) {
+    if (version == 1) {
         make_lock_nowait(fd, fl);
-    } else if (version == 1) {
+    } else if (version == 2) {
         make_lock_wait(fd, fl);
     }
 
-    if (close(fd) == -1) {
-        perror("Error");
-    }
     free(fl);
 }
-
-int open_file(char *filename) ;
 
 void make_lock_nowait(int fd, struct flock *fl) ;
 
 void make_lock_wait(int fd, struct flock *fl) ;
 
-struct flock* flock_read(long long l_char) ;
+long chose_char_num() ;
 
-void set_read_lock(char *filename) {
+struct flock* flock_read(long l_char) ;
+
+void set_read_lock(int fd) {
     int version = chose_version();
     if (version == -1 || version == 3) {
         return;
     }
-    long long char_n = chose_char_num();
+    long char_n = chose_char_num();
     struct flock *fl = flock_read(char_n);
-    int fd = open_file(filename);
 
-    if (version == 0) {
+    if (version == 1) {
         make_lock_nowait(fd, fl);
-    } else if (version == 1) {
+    } else if (version == 2) {
         make_lock_wait(fd, fl);
     }
     free(fl);
-
-    if (close(fd) == -1) {
-        perror("Error");
-    }
 }
 
-long long chose_char_num() {
+long chose_char_num() {
     char *buff = calloc(20, sizeof(*buff));
-    long long result = 0;
+    long result = 0;
 
     printf("podaje numer znaku: \n");
     scanf("%s", buff);
-    sscanf(buff, "%lld", &result);
+    sscanf(buff, "%ld", &result);
 
     return result;
-}
-
-int open_file(char *filename) {
-    int fd = open(filename, O_RDWR);
-    if (fd == -1) {
-        perror("Error");
-        exit(EXIT_FAILURE);
-    }
-
-    return fd;
 }
 
 void make_lock_wait(int fd, struct flock *fl) {
@@ -260,7 +266,7 @@ void make_lock_nowait(int fd, struct flock *fl) {
     }
 }
 
-struct flock* flock_write(long long l_char) {
+struct flock* flock_write(long l_char) {
     struct flock *fl = malloc(sizeof(*fl));
     fl->l_type = F_WRLCK;
     fl->l_whence = SEEK_SET;
@@ -269,7 +275,7 @@ struct flock* flock_write(long long l_char) {
     return fl;
 }
 
-struct flock* flock_read(long long l_char) {
+struct flock* flock_read(long l_char) {
     struct flock *fl = malloc(sizeof(*fl));
     fl->l_type = F_RDLCK;
     fl->l_whence = SEEK_SET;

@@ -1,0 +1,162 @@
+		Test case for 4 bytes per each record.
+	sorting 1000:
+
+Library file functions:
+	real:0.536399s	user:0.160976s	system:0.375362s
+
+System file functions:
+	real:0.572835s	user:0.132135s	system:0.440637s
+
+	shuffling 10000:
+
+Library file functions:
+	real:0.080158s	user:0.010986s	system:0.069160s
+
+System file functions (in seconds):
+	real:0.045036s	user:0.012943s	system:0.032086s
+
+
+
+
+		Test case for 4 bytes per each record.
+	sorting 1800:
+
+Library file functions:
+	real:1.292607s	user:0.426037s	system:0.866355s
+
+System file functions:
+	real:1.413723s	user:0.354822s	system:1.058694s
+
+	shuffling 15000:
+
+Library file functions:
+	real:0.111472s	user:0.021040s	system:0.090418s
+
+System file functions (in seconds):
+	real:0.068838s	user:0.013911s	system:0.054917s
+
+
+
+
+		Test case for 512 bytes per each record.
+	sorting 1000:
+
+Library file functions:
+	real:2.319754s	user:1.819372s	system:0.500050s
+
+System file functions:
+	real:2.198015s	user:1.757791s	system:0.439883s
+
+	shuffling 10000:
+
+Library file functions:
+	real:0.191176s	user:0.085179s	system:0.105952s
+
+System file functions (in seconds):
+	real:0.115979s	user:0.075837s	system:0.040129s
+
+
+
+
+		Test case for 512 bytes per each record.
+	sorting 1800:
+
+Library file functions:
+	real:6.822657s	user:5.732801s	system:1.089063s
+
+System file functions:
+	real:6.814956s	user:5.519710s	system:1.293900s
+
+	shuffling 15000:
+
+Library file functions:
+	real:0.313586s	user:0.140356s	system:0.173196s
+
+System file functions (in seconds):
+	real:0.230223s	user:0.111968s	system:0.118229s
+
+
+
+
+		Test case for 4096 bytes per each record.
+	sorting 1000:
+
+Library file functions:
+	real:17.069358s	user:12.843920s	system:4.222497s
+
+System file functions:
+	real:17.295215s	user:12.431672s	system:4.861589s
+
+	shuffling 10000:
+
+Library file functions:
+	real:0.777844s	user:0.462673s	system:0.314960s
+
+System file functions (in seconds):
+	real:0.782359s	user:0.545267s	system:0.237007s
+
+
+
+
+		Test case for 4096 bytes per each record.
+	sorting 1800:
+
+Library file functions:
+	real:58.871672s	user:40.872168s	system:17.991636s
+
+System file functions:
+	real:58.171602s	user:40.488813s	system:17.675377s
+
+	shuffling 15000:
+
+Library file functions:
+	real:1.155334s	user:0.826279s	system:0.328906s
+
+System file functions (in seconds):
+	real:1.122928s	user:0.721368s	system:0.401413s
+
+
+
+
+		Test case for 8192 bytes per each record.
+	sorting 1000:
+
+Library file functions:
+	real:32.346473s	user:26.133688s	system:6.206168s
+
+System file functions:
+	real:31.926765s	user:25.666357s	system:6.256083s
+
+	shuffling 10000:
+
+Library file functions:
+	real:1.339294s	user:1.022930s	system:0.316177s
+
+System file functions (in seconds):
+	real:1.350922s	user:0.847744s	system:0.503033s
+
+
+
+
+		Test case for 8192 bytes per each record.
+	sorting 1800:
+
+Library file functions:
+	real:103.561269s	user:82.471032s	system:21.078660s
+
+System file functions:
+	real:103.744766s	user:82.881812s	system:20.849342s
+
+	shuffling 15000:
+
+Library file functions:
+	real:1.922573s	user:1.502096s	system:0.420205s
+
+System file functions (in seconds):
+	real:2.023076s	user:1.497926s	system:0.524911s
+
+
+	Otrzymane wyniki pomiarow wydajnosci funkcji, ktore wykorzystuja funkcje systemowe do obslugi 
+plikow oraz dla porownania funkcje biblioteczne do obslugi plikow, wskazuja na to, ze wydajniejsza obsluga
+plikow jest bardziej prawdopodobna do osiagniecia z wykorzystaniem funkcji systemowych. Czasy systemowe
+i czasy uzytkownika wykorzystane przez funkcje systemowe sa odpowiednio mniejsze.

@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-Wall
+CFLAGS=-Wall -std=gnu99
 ODIR=./obj
 
 main: $(ODIR)/main.o

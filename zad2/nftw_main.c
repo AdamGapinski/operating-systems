@@ -11,16 +11,13 @@ void search_dir(char *path) ;
 off_t upper_bound_size;
 
 int main(int argc, char **argv) {
-
     if (argc != 3) {
         fprintf(stderr, "Error: Wrong number of arguments. Specify path and file size\n");
         exit(EXIT_FAILURE);
     }
 
     upper_bound_size = atoi(argv[2]);
-
     search_dir(argv[1]);
-
     return 0;
 }
 

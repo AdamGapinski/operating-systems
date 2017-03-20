@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-Wall
+CFLAGS=-Wall -std=gnu99
 ODIR=./obj
 
 all: dir_main nftw_main

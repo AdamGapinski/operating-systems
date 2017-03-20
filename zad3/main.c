@@ -20,6 +20,28 @@ void lock_info(int fd) ;
 
 void release_lock(int fd) ;
 
+char choose_char();
+
+void set_char_write_lock(int fd, int char_n) ;
+
+void set_char_read_lock(int fd, int char_n) ;
+
+void release_char_lock(int fd, int char_n) ;
+
+void print_lock_info(int fd, off_t offset, pid_t proc_id, char *type) ;
+
+void make_lock_nowait(int fd, struct flock *fl) ;
+
+void make_lock_wait(int fd, struct flock *fl) ;
+
+int choose_char_num() ;
+
+struct flock* flock_write(int l_char) ;
+
+struct flock* flock_read(int l_char) ;
+
+struct flock* flock_unlock(int l_char) ;
+
 int main(int argc, char **argv) {
     if (argc != 2) {
         fprintf(stderr, "Wrong number of arguments. Specify filename.\n");
@@ -64,36 +86,34 @@ void print_menu() {
     printf("Wybierz operacje (1 - 7)\n");
     printf("1. ustawienie rygla do odczytu na wybrany znak pliku,\n");
     printf("2. ustawienie rygla do zapisu na wybrany znak pliku,\n");
-    printf("3. wyswietlenie listy zaryglowanych znakow pliku (z informacja o numerze PID procesu będacego wlascicielem rygla oraz jego typie - odczyt/zapis),\n");
+    printf("3. wyswietlenie listy zaryglowanych znakow pliku,\n");
     printf("4. zwolnienie wybranego rygla,\n");
-    printf("5. odczyt (funkcją read) wybranego znaku pliku,\n");
-    printf("6. zmiana (funkcją write) wybranego znaku pliku.\n");
+    printf("5. odczyt wybranego znaku pliku,\n");
+    printf("6. zmiana wybranego znaku pliku.\n");
     printf("7. wyjscie\n");
 }
 
-char chose_char();
-
-long chose_char_num() ;
-
 void write_char(int fd) {
-    long long int char_n = chose_char_num();
-    lseek(fd, char_n, SEEK_SET);
-
     char *to_write = calloc(1, sizeof(to_write));
-    to_write[0] = chose_char();
+    to_write[0] = choose_char();
+
+    int char_n = choose_char_num();
+    set_char_write_lock(fd, char_n);
+    lseek(fd, char_n, SEEK_SET);
 
     if (write(fd, to_write, 1) == -1) {
         perror("Error, while writing char");
     }
+    release_char_lock(fd, char_n);
 
     free(to_write);
 }
 
-char chose_char() {
+char choose_char() {
     char *buff = calloc(5, sizeof(*buff));
     char result = 0;
 
-    printf("podaje znak: \n");
+    printf("podaj znak: \n");
     scanf("%s", buff);
     sscanf(buff, "%c", &result);
 
@@ -101,37 +121,50 @@ char chose_char() {
 }
 
 void read_char(int fd) {
-    long long int char_n = chose_char_num();
-    lseek(fd, char_n, SEEK_SET);
+    int char_n = choose_char_num();
+    set_char_read_lock(fd, char_n);
 
+    lseek(fd, char_n, SEEK_SET);
     char *to_read = calloc(1, sizeof(to_read));
 
     if (read(fd, to_read, 1) == -1) {
         perror("Error, while reading char");
     }
+    release_char_lock(fd, char_n);
 
     printf("Odczytany znak to %s\n", to_read);
     free(to_read);
 }
 
 void release_lock(int fd) {
-    /*chose_char_num()*/
+    int char_n = choose_char_num();
+    struct flock *unlock = flock_unlock(char_n);
+
+    if(fcntl(fd, F_SETLK, unlock)) {
+        perror("Error");
+    }
+
+    free(unlock);
 }
 
-struct flock* flock_write(long l_char) ;
+void release_char_lock(int fd, int char_n) {
+    struct flock *unlock = flock_unlock(char_n);
 
-struct flock* flock_read(long l_char) ;
+    if(fcntl(fd, F_SETLK, unlock)) {
+        perror("Error");
+    }
 
-void print_lock_info(int fd, off_t offset, pid_t proc_id, char *type) ;
+    free(unlock);
+}
 
 void lock_info(int fd) {
     struct flock *write;
     struct flock *read;
     struct stat st;
     fstat(fd, &st);
-    long size = st.st_size;
+    off_t size = st.st_size;
 
-    printf("%s %s %s %s\n", "PID", "char_num", "char", "type");
+    printf("%s\t%s\t%s\t%s\n", "PID", "char", "ch_num", "type");
 
     for (int i = 0; i < size; ++i) {
         write = flock_write(i);
@@ -164,12 +197,12 @@ void print_lock_info(int fd, off_t offset, pid_t proc_id, char *type) {
     if (strcmp(locked, "\00") == 0) {
         strcpy(locked, " \0");
     }
-    printf("%d\t%ld\t%s\t%s\n", proc_id, offset, locked, type);
+    printf("%d\t%s\t%ld\t%s\n", proc_id, locked, offset, type);
     free(locked);
     lseek(fd, prev_offset, SEEK_SET);
 }
 
-int chose_version() {
+int choose_version() {
     char *buff = calloc(20, sizeof(*buff));
     int result;
 
@@ -195,18 +228,12 @@ int chose_version() {
     return result;
 }
 
-void make_lock_nowait(int fd, struct flock *fl) ;
-
-void make_lock_wait(int fd, struct flock *fl) ;
-
-struct flock* flock_write(long l_char) ;
-
 void set_write_lock(int fd) {
-    int version = chose_version();
+    int version = choose_version();
     if (version == -1 || version == 3) {
         return;
     }
-    long long char_n = chose_char_num();
+    int char_n = choose_char_num();
     struct flock *fl = flock_write(char_n);
 
     if (version == 1) {
@@ -218,20 +245,18 @@ void set_write_lock(int fd) {
     free(fl);
 }
 
-void make_lock_nowait(int fd, struct flock *fl) ;
-
-void make_lock_wait(int fd, struct flock *fl) ;
-
-long chose_char_num() ;
-
-struct flock* flock_read(long l_char) ;
+void set_char_write_lock(int fd, int char_n) {
+    struct flock *fl = flock_write(char_n);
+    make_lock_nowait(fd, fl);
+    free(fl);
+}
 
 void set_read_lock(int fd) {
-    int version = chose_version();
+    int version = choose_version();
     if (version == -1 || version == 3) {
         return;
     }
-    long char_n = chose_char_num();
+    int char_n = choose_char_num();
     struct flock *fl = flock_read(char_n);
 
     if (version == 1) {
@@ -242,13 +267,19 @@ void set_read_lock(int fd) {
     free(fl);
 }
 
-long chose_char_num() {
-    char *buff = calloc(20, sizeof(*buff));
-    long result = 0;
+void set_char_read_lock(int fd, int char_n) {
+    struct flock *fl = flock_read(char_n);
+    make_lock_nowait(fd, fl);
+    free(fl);
+}
 
-    printf("podaje numer znaku: \n");
+int choose_char_num() {
+    char *buff = calloc(20, sizeof(*buff));
+    int result = 0;
+
+    printf("podaj numer znaku: \n");
     scanf("%s", buff);
-    sscanf(buff, "%ld", &result);
+    sscanf(buff, "%d", &result);
 
     return result;
 }
@@ -265,7 +296,7 @@ void make_lock_nowait(int fd, struct flock *fl) {
     }
 }
 
-struct flock* flock_write(long l_char) {
+struct flock* flock_write(int l_char) {
     struct flock *fl = malloc(sizeof(*fl));
     fl->l_type = F_WRLCK;
     fl->l_whence = SEEK_SET;
@@ -274,12 +305,20 @@ struct flock* flock_write(long l_char) {
     return fl;
 }
 
-struct flock* flock_read(long l_char) {
+struct flock* flock_unlock(int l_char) {
+    struct flock *fl = malloc(sizeof(*fl));
+    fl->l_type = F_UNLCK;
+    fl->l_whence = SEEK_SET;
+    fl->l_start = l_char;
+    fl->l_len = 1;
+    return fl;
+}
+
+struct flock* flock_read(int l_char) {
     struct flock *fl = malloc(sizeof(*fl));
     fl->l_type = F_RDLCK;
     fl->l_whence = SEEK_SET;
     fl->l_start = l_char;
     fl->l_len = 1;
     return fl;
-
 }

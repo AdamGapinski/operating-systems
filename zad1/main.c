@@ -5,6 +5,7 @@
 #include <time.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include "include/time_msrmnt.h"
 
 typedef struct record {
     unsigned char first;
@@ -95,6 +96,19 @@ void swap_records(record **first, record **second) {
     swap(&(*first)->recordno, &(*second)->recordno);
 }
 
+typedef void (*operation_method)(char*, size_t, size_t) ;
+
+time_span *measure_time (operation_method method, char *filename, size_t size, size_t records) {
+    timePoint *start = createTimePoint();
+    method(filename, size, records);
+    timePoint *end = createTimePoint();
+
+    time_span *result = create_time_span(start, end);
+    deleteTimePoint(start);
+    deleteTimePoint(end);
+    return result;
+}
+
 int main(int argc, char **argv) {
     char *set = "";
     char *operation = "";
@@ -132,9 +146,13 @@ int main(int argc, char **argv) {
         validate_file_info(filename, size, records);
 
         if (strcmp(set, "lib") == 0) {
-            sort_lib(filename, size, records);
+            time_span *span = measure_time(sort_lib, filename, size, records);
+            make_time_measurement(span, "Library file functions:\n");
+            delete_t_span(span);
         } else if (strcmp(set, "sys") == 0) {
-            sort_sys(filename, size, records);
+            time_span *span = measure_time(sort_sys, filename, size, records);
+            make_time_measurement(span, "System file functions:\n");
+            delete_t_span(span);
         } else {
             fprintf(stderr, "Error: Method set not specified (sys or lib).\n");
             exit(EXIT_FAILURE);
@@ -144,9 +162,15 @@ int main(int argc, char **argv) {
         validate_file_info(filename, size, records);
 
         if (strcmp(set, "lib") == 0) {
-            shuffle_lib(filename, size, records);
+            time_span *span = measure_time(shuffle_lib, filename, size, records);
+            make_time_measurement(span, "Library file functions:\n");
+            delete_t_span(span);
+
         } else if (strcmp(set, "sys") == 0) {
-            shuffle_sys(filename, size, records);
+            time_span *span = measure_time(shuffle_sys, filename, size, records);
+            make_time_measurement(span, "System file functions (in seconds):\n");
+            delete_t_span(span);
+
         } else {
             fprintf(stderr, "Error: Method set not specified (sys or lib)\n");
             exit(EXIT_FAILURE);
@@ -256,7 +280,7 @@ void read_lib(unsigned char *buff, size_t size, FILE *fp) {
         if (feof(fp) != 0) {
             fprintf(stderr, "Error: reached end of file.\n");
         } else if (ferror(fp) != 0) {
-            fprintf(stderr, "Error: while reading the fil\n");
+            fprintf(stderr, "Error: while reading the file.\n");
         } else {
             perror("Error");
         }
@@ -376,38 +400,3 @@ void write_sys(unsigned char *buff, size_t size, int fd) {
     }
 }
 
-void print_file(FILE *fp, size_t size, size_t records) {
-    unsigned char *buff = calloc(size, sizeof(*buff));
-    long offset = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-
-    for (size_t i = 0; i < records; ++i) {
-        read_lib(buff, size, fp);
-        for (size_t j = 0; j < size; ++j) {
-            printf("%d ", buff[j]);
-        }
-        printf("\n");
-    };
-
-    fseek(fp, offset, SEEK_SET);
-    free(buff);
-}
-
-void print_records(char *pathname, size_t size, size_t records) {
-    FILE *fp = fopen(pathname, "r");
-    if (fp == NULL) {
-        perror("Error");
-    }
-    unsigned char *buff = calloc(size, sizeof(*buff));
-
-    for (size_t i = 0; i < records; ++i) {
-        read_lib(buff, size, fp);
-        for (size_t j = 0; j < size; ++j) {
-            printf("%d ", buff[j]);
-        }
-        printf("\n");
-    };
-
-    free(buff);
-    fclose(fp);
-}

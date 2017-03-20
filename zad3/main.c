@@ -122,7 +122,7 @@ struct flock* flock_write(long l_char) ;
 
 struct flock* flock_read(long l_char) ;
 
-void print_lock_info(struct flock *lock, int fd);
+void print_lock_info(int fd, off_t offset, pid_t proc_id, char *type) ;
 
 void lock_info(int fd) {
     struct flock *write;
@@ -131,7 +131,7 @@ void lock_info(int fd) {
     fstat(fd, &st);
     long size = st.st_size;
 
-    printf("%s\t%s\t%s\t%s\n", "PID", "char_num", "char", "type");
+    printf("%s %s %s %s\n", "PID", "char_num", "char", "type");
 
     for (int i = 0; i < size; ++i) {
         write = flock_write(i);
@@ -142,10 +142,10 @@ void lock_info(int fd) {
             exit(EXIT_FAILURE);
         }
 
-        if (write->l_type != F_UNLCK) {
-            print_lock_info(write, fd);
+        if (read->l_type == F_UNLCK && write->l_type != F_UNLCK) {
+            print_lock_info(fd, i, write->l_pid, "odczyt");
         } else if (read->l_type != F_UNLCK) {
-            print_lock_info(read, fd);
+            print_lock_info(fd, i, write->l_pid, "zapis");
         }
 
         free(write);
@@ -153,26 +153,25 @@ void lock_info(int fd) {
     }
 }
 
-void print_lock_info(struct flock *lock, int fd) {
-    off_t prev_offset = lseek(fd, 0, SEEK_SET);
-    lseek(fd, lock->l_start, SEEK_SET);
+void print_lock_info(int fd, off_t offset, pid_t proc_id, char *type) {
+    off_t prev_offset = lseek(fd, 0, SEEK_CUR);
+    lseek(fd, offset, SEEK_SET);
 
     char *locked = calloc(2, sizeof(*locked));
     if(read(fd, locked, 1) == -1) {
         perror("Error while printing lock info.");
     };
     if (strcmp(locked, "\00") == 0) {
-        strcpy(locked, " ");
+        strcpy(locked, " \0");
     }
-    char *type = lock->l_type == F_RDLCK ? "odczyt" : lock->l_type == F_WRLCK ? "zapis" : "niezdefiniowany";
-    printf("%d\t%ld\t%s\t%s\n", lock->l_pid, lock->l_start, locked, type);
+    printf("%d\t%ld\t%s\t%s\n", proc_id, offset, locked, type);
     free(locked);
     lseek(fd, prev_offset, SEEK_SET);
 }
 
 int chose_version() {
     char *buff = calloc(20, sizeof(*buff));
-    int result = -1;
+    int result;
 
     printf("wybierz wersje (1 - 3)\n");
     printf("1. wersja nieblokujaca\n");

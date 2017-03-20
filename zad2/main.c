@@ -1,8 +1,11 @@
 #include <stdio.h>
+#include <string.h>
 #include <stdlib.h>
 #include <dirent.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <memory.h>
+#include <errno.h>
 
 void print_file_info(struct stat *pStat, char *path);
 
@@ -26,9 +29,9 @@ void search_path(char *path, off_t file_size) {
 
     DIR *dir = opendir(rpath);
     if (dir == NULL) {
-        perror("Error");
+        fprintf(stderr, "Error: %s %s\n", rpath, strerror(errno));
     }
-    search_dir(dir, path, file_size);
+    search_dir(dir, rpath, file_size);
     free(rpath);
 }
 
@@ -41,17 +44,20 @@ void search_dir(DIR *dir, char *path, off_t file_size) {
     struct dirent *ent = readdir(dir);
     struct stat *st = malloc(sizeof(*st));
     while (ent != NULL) {
-        realpath(ent->d_name, rpath);
+        strncpy(rpath, path, MAX_PATH);
+        strcat(rpath, "/");
+        strncat(rpath, ent->d_name, MAX_PATH);
 
         if (lstat(rpath, st) == -1) {
-            perror("Error");
+            fprintf(stderr, "Error: %s %s\n", rpath, strerror(errno));
         }
-        else if (st->st_mode == S_IFDIR && st->st_mode != S_IFLNK) {
+        else if (strcmp(ent->d_name, "..") != 0 && strcmp(ent->d_name, ".") != 0
+                 && S_ISDIR(st->st_mode) && S_ISLNK(st->st_mode) == 0) {
             DIR *in_dir = opendir(rpath);
             if (in_dir == NULL) {
-                perror("Error");
+                fprintf(stderr, "Error: %s %s\n", rpath, strerror(errno));
             } else {
-                search_dir(in_dir, path, file_size);
+                search_dir(in_dir, rpath, file_size);
             }
         }
         ent = readdir(dir);
@@ -61,9 +67,11 @@ void search_dir(DIR *dir, char *path, off_t file_size) {
     ent = readdir(dir);
 
     while (ent != NULL) {
-        realpath(ent->d_name, rpath);
+        strncpy(rpath, path, MAX_PATH);
+        strcat(rpath, "/");
+        strncat(rpath, ent->d_name, MAX_PATH);
 
-        if (lstat(rpath, st) != 0 && st->st_mode == S_IFREG && st->st_size <= file_size) {
+        if (lstat(rpath, st) != -1 && S_ISREG(st->st_mode) && st->st_size <= file_size) {
             print_file_info(st, rpath);
         }
         ent = readdir(dir);
@@ -74,10 +82,19 @@ void search_dir(DIR *dir, char *path, off_t file_size) {
 }
 
 void print_file_info(struct stat *pStat, char *path) {
-    char access[12];
-    char mod[12];
+    char access[9];
 
-    printf("Path: %s\nSize: %ld\nAccess: %d\nModification: %s\n\n", path, pStat->st_size, pStat->st_mode,
+    access[0] = (char) (pStat->st_mode & S_IRUSR ? 'r' : '-');
+    access[1] = (char) (pStat->st_mode & S_IWUSR ? 'w' : '-');
+    access[2] = (char) (pStat->st_mode & S_IXUSR ? 'x' : '-');
+    access[3] = (char) (pStat->st_mode & S_IRGRP ? 'r' : '-');
+    access[4] = (char) (pStat->st_mode & S_IWGRP ? 'w' : '-');
+    access[5] = (char) (pStat->st_mode & S_IXGRP ? 'x' : '-');
+    access[6] = (char) (pStat->st_mode & S_IROTH ? 'r' : '-');
+    access[7] = (char) (pStat->st_mode & S_IWOTH ? 'w' : '-');
+    access[8] = (char) (pStat->st_mode & S_IXOTH ? 'x' : '-');
+
+    printf("Path: %s\nSize: %ld Bytes\nPermissions: %s\nModification: %s\n\n", path, pStat->st_size, access,
            ctime((const time_t *) &pStat->st_mtim));
 }
 

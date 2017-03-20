@@ -3,6 +3,8 @@
 #include <memory.h>
 #include <errno.h>
 #include <time.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 typedef struct record {
     unsigned char first;
@@ -11,11 +13,11 @@ typedef struct record {
     size_t size;
 }record;
 
-void generate(char *filename, size_t records, size_t size);
+void generate(char *pathname, size_t records, size_t size);
 
-void print_records(char *filename, size_t size, size_t records) ;
+void print_records(char *pathname, size_t size, size_t records) ;
 
-void sort_lib(char *filename, size_t size, size_t records) ;
+void sort_lib(char *pathname, size_t size, size_t records) ;
 
 void read_lib(unsigned char *buff, size_t size, FILE *fp) ;
 
@@ -25,7 +27,15 @@ void print_file(FILE *fp, size_t size, size_t records) ;
 
 void swap_records_lib(FILE *fp, record **first, record **second) ;
 
-void shuffle_lib(char *filename, size_t size, size_t records) ;
+void shuffle_lib(char *pathname, size_t size, size_t records) ;
+
+void sort_sys(char *pathname, size_t size, size_t records) ;
+
+void read_sys(unsigned char *buff, size_t size, int fd);
+
+void swap_records_sys(int fd, record **first, record **second);
+
+void write_sys(unsigned char *buff, size_t size, int fd);
 
 record *create_record(unsigned char first, size_t record_num, unsigned char *ptr, size_t size) {
     record *result = malloc(sizeof(*result));
@@ -48,6 +58,7 @@ void swap(unsigned long *a, unsigned long *b) {
 }
 
 void write_record_lib(FILE *fp, record *record) {
+    long prev_offset = ftell(fp);
     size_t offset = record->recordno * record->size;
 
     if(fseek(fp, offset, SEEK_SET) != 0) {
@@ -55,7 +66,12 @@ void write_record_lib(FILE *fp, record *record) {
         exit(EXIT_FAILURE);
     }
 
-    fwrite(record->ptr, record->size, 1, fp);
+    write_lib(record->ptr, record->size, fp);
+
+    if(fseek(fp, prev_offset, SEEK_SET) != 0) {
+        fprintf(stderr, "Error: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
 }
 
 void swap_records(record **first, record **second) {
@@ -68,17 +84,16 @@ void swap_records(record **first, record **second) {
 }
 
 int main() {
-    generate("test", 10, 10);
-    print_records("test", 10, 10);
-    shuffle_lib("test", 10, 10);
+    generate("test", 1000, 100);
+    shuffle_lib("test", 100, 100);
     printf("\n\n");
-    print_records("test", 10, 10);
+    print_records("test", 1000, 100);
     return 0;
 }
 
-void generate(char *filename, size_t size, size_t records) {
+void generate(char *pathname, size_t size, size_t records) {
     FILE *rand = fopen("/dev/urandom", "r");
-    FILE *generated = fopen(filename, "w");
+    FILE *generated = fopen(pathname, "w");
     unsigned char *buff = calloc(size, sizeof(*buff));
 
     for (size_t i = 0; i < records; ++i) {
@@ -91,12 +106,38 @@ void generate(char *filename, size_t size, size_t records) {
     fclose(generated);
 }
 
-void shuffle_sys(char *filename, size_t size, size_t records) {
+void shuffle_sys(char *pathname, size_t size, size_t records) {
+    int fd = open(pathname, O_RDWR);
+    if (fd == -1) {
+        perror("Error");
+    }
 
+    unsigned char *buff = calloc(size, sizeof(*buff));
+    record *first;
+    record *second;
+
+    srand48(time(NULL));
+    for (size_t i = records - 1; i > 0; --i) {
+        lseek(fd, i * size, SEEK_SET);
+        read_sys(buff, size, fd);
+        first = create_record(buff[0], i, buff, size);
+
+        size_t j = (size_t)(drand48() * i);
+        lseek(fd, j * size, SEEK_SET);
+        read_lib(buff, size, fd);
+        second = create_record(buff[0], j, buff, size);
+        swap_records_sys(fd, &first, &second);
+
+        delete_record(second);
+        delete_record(first);
+    }
+
+    free(buff);
+    close(fd);
 }
 
-void shuffle_lib(char *filename, size_t size, size_t records) {
-    FILE *fp = fopen(filename, "r+");
+void shuffle_lib(char *pathname, size_t size, size_t records) {
+    FILE *fp = fopen(pathname, "r+");
     if (fp == NULL) {
         perror("Error");
     }
@@ -139,7 +180,7 @@ void read_lib(unsigned char *buff, size_t size, FILE *fp) {
 }
 
 void write_lib(unsigned char *buff, size_t size, FILE *fp) {
-    if (fwrite(buff, size, 1, fp) != 1) {
+    if (fwrite(buff, sizeof(*buff), size, fp) != size) {
         perror("Error");
         exit(EXIT_FAILURE);
     }
@@ -151,26 +192,27 @@ void swap_records_lib(FILE *fp, record **first, record **second) {
     write_record_lib(fp, *second);
 }
 
-void sort_sys(char *filename, size_t size, size_t records) {
-    FILE *fp = fopen(filename, "r+");
-    if (fp == NULL) {
+void sort_sys(char *pathname, size_t size, size_t records) {
+    int fd = open(pathname, O_RDWR);
+    if (fd == -1) {
         perror("Error");
     }
+
     unsigned char *buff = calloc(size, sizeof(*buff));
     record *first;
     record *second;
 
     for (size_t i = 0; i < records; ++i) {
-        fseek(fp, i * size, SEEK_SET);
-        read_lib(buff, size, fp);
+        lseek(fd, i * size, SEEK_SET);
+        read_sys(buff, size, fd);
         first = create_record(buff[0], i, buff, size);
 
         for (size_t j = i + 1; j < records; ++j) {
-            read_lib(buff, size, fp);
+            read_sys(buff, size, fd);
             second = create_record(buff[0], j, buff, size);
 
             if (first->first > second->first) {
-                swap_records_lib(fp, &first, &second);
+                swap_records_sys(fd, &first, &second);
             }
             delete_record(second);
         }
@@ -178,11 +220,42 @@ void sort_sys(char *filename, size_t size, size_t records) {
     }
 
     free(buff);
-    fclose(fp);
+    close(fd);
 }
 
-void sort_lib(char *filename, size_t size, size_t records) {
-    FILE *fp = fopen(filename, "r+");
+void write_record_sys(int fd, record *record) {
+    long prev_offset = lseek(fd, 0, SEEK_CUR);
+    size_t offset = record->recordno * record->size;
+
+    if (lseek(fd, offset, SEEK_SET) == -1) {
+        perror("Error");
+        exit(EXIT_FAILURE);
+    };
+
+    write_sys(record->ptr, record->size, fd);
+
+    if (lseek(fd, prev_offset, SEEK_SET) == -1) {
+        perror("Error");
+        exit(EXIT_FAILURE);
+    };
+}
+
+void swap_records_sys(int fd, record **first, record **second) {
+    swap_records(first, second);
+
+    write_record_sys(fd, *first);
+    write_record_sys(fd, *second);
+}
+
+void read_sys(unsigned char *buff, size_t size, int fd) {
+    if (read(fd, buff, size) == -1) {
+        perror("Error");
+        exit(EXIT_FAILURE);
+    }
+}
+
+void sort_lib(char *pathname, size_t size, size_t records) {
+    FILE *fp = fopen(pathname, "r+");
     if (fp == NULL) {
         perror("Error");
     }
@@ -228,8 +301,8 @@ void print_file(FILE *fp, size_t size, size_t records) {
     free(buff);
 }
 
-void print_records(char *filename, size_t size, size_t records) {
-    FILE *fp = fopen(filename, "r");
+void print_records(char *pathname, size_t size, size_t records) {
+    FILE *fp = fopen(pathname, "r");
     if (fp == NULL) {
         perror("Error");
     }
@@ -245,4 +318,11 @@ void print_records(char *filename, size_t size, size_t records) {
 
     free(buff);
     fclose(fp);
+}
+
+void write_sys(unsigned char *buff, size_t size, int fd) {
+    if (write(fd, buff, size) == -1) {
+        perror("Error");
+        exit(EXIT_FAILURE);
+    }
 }

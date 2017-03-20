@@ -37,12 +37,26 @@ void swap_records_sys(int fd, record **first, record **second);
 
 void write_sys(unsigned char *buff, size_t size, int fd);
 
+unsigned char* duplicate_record(unsigned char *ptr, size_t size) ;
+
+void shuffle_sys(char *pathname, size_t size, size_t records) ;
+
 record *create_record(unsigned char first, size_t record_num, unsigned char *ptr, size_t size) {
     record *result = malloc(sizeof(*result));
     result->first = first;
     result->recordno = record_num;
-    result->ptr = (unsigned char*) strdup((char *)ptr);
+    result->ptr = duplicate_record(ptr, size);
     result->size = size;
+    return result;
+}
+
+unsigned char* duplicate_record(unsigned char *ptr, size_t size) {
+    unsigned char* result = malloc(size * sizeof(*result));
+
+    for (int i = 0; i < size; ++i) {
+        result[i] = ptr[i];
+    }
+
     return result;
 }
 
@@ -83,11 +97,15 @@ void swap_records(record **first, record **second) {
     swap(&(*first)->recordno, &(*second)->recordno);
 }
 
-int main() {
-    generate("test", 1000, 100);
-    shuffle_lib("test", 100, 100);
+int main(int argc, int **argv) {
+
+    if (strcmp() == 0)
+
+    print_records("test", 10, 10);
+    generate("test", 10, 10);
+    shuffle_sys("test", 10, 10);
     printf("\n\n");
-    print_records("test", 1000, 100);
+    print_records("test", 10, 10);
     return 0;
 }
 
@@ -124,7 +142,7 @@ void shuffle_sys(char *pathname, size_t size, size_t records) {
 
         size_t j = (size_t)(drand48() * i);
         lseek(fd, j * size, SEEK_SET);
-        read_lib(buff, size, fd);
+        read_sys(buff, size, fd);
         second = create_record(buff[0], j, buff, size);
         swap_records_sys(fd, &first, &second);
 

@@ -2,12 +2,21 @@ CC=gcc
 CFLAGS=-Wall
 ODIR=./obj
 
-main: $(ODIR)/main.o
+all: dir_main nftw_main
+
+nftw_main: $(ODIR)/nftw_main.o
 	$(CC) $(CFLAGS) $< -o $@
 
-$(ODIR)/main.o: main.c
-	$(CC) $(CFLAGS) -c $< -o $@
-clean:
-	rm -rf ./main *.o $(ODIR)/*.o
+dir_main: $(ODIR)/dir_main.o
+	$(CC) $(CFLAGS) $< -o $@
 
-.PHONY: clean
+$(ODIR)/nftw_main.o: nftw_main.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(ODIR)/dir_main.o: dir_main.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+clean:
+	rm -rf ./nftw_main ./dir_main *.o $(ODIR)/*.o
+
+.PHONY: clean all

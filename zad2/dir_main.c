@@ -3,23 +3,24 @@
 #include <stdlib.h>
 #include <dirent.h>
 #include <sys/stat.h>
-#include <time.h>
-#include <memory.h>
 #include <errno.h>
-
-void print_file_info(struct stat *pStat, char *path);
+#include <time.h>
 
 void search_path(char *path, off_t file_size) ;
 
 void search_dir(DIR *dir, char *path, off_t file_size) ;
 
+void print_file_info(const struct stat *pStat, const char *path) ;
+
 int main(int argc, char **argv) {
     if (argc != 3) {
-        fprintf(stderr, "Error: Wrong number of arguments. Specify path and file size");
+        fprintf(stderr, "Error: Wrong number of arguments. Specify path and file size\n");
         exit(EXIT_FAILURE);
     }
 
     search_path(argv[1], atoi(argv[2]));
+
+    return 0;
 }
 
 void search_path(char *path, off_t file_size) {
@@ -81,8 +82,8 @@ void search_dir(DIR *dir, char *path, off_t file_size) {
     free(st);
 }
 
-void print_file_info(struct stat *pStat, char *path) {
-    char access[9];
+void print_file_info(const struct stat *pStat, const char *path) {
+    char access[10];
 
     access[0] = (char) (pStat->st_mode & S_IRUSR ? 'r' : '-');
     access[1] = (char) (pStat->st_mode & S_IWUSR ? 'w' : '-');
@@ -93,11 +94,8 @@ void print_file_info(struct stat *pStat, char *path) {
     access[6] = (char) (pStat->st_mode & S_IROTH ? 'r' : '-');
     access[7] = (char) (pStat->st_mode & S_IWOTH ? 'w' : '-');
     access[8] = (char) (pStat->st_mode & S_IXOTH ? 'x' : '-');
+    access[9] = '\0';
 
     printf("Path: %s\nSize: %ld Bytes\nPermissions: %s\nModification: %s\n\n", path, pStat->st_size, access,
-           ctime((const time_t *) &pStat->st_mtim));
-}
-
-void search_dir_nftw(char *path) {
-
+           ctime((const time_t *) &pStat->st_mtime));
 }

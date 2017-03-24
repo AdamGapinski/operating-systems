@@ -14,6 +14,7 @@ $(ODIR)/main.o: main.c $(DEPS)
 
 $(ODIR)/scanner.o: scanner.c $(DEPS)
 	$(CC) $(CFLAGS) -c $< -o $@ -I$(IDIR)
+
 clean:
 	rm -f main *.o $(ODIR)/*.o
 

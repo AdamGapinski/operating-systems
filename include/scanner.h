@@ -5,6 +5,7 @@ typedef struct token_buff {
     char *buff;
     char *pointer;
     char *token;
+    int spaces_before;
 } token_buff;
 
 token_buff *init_token(char *buff);

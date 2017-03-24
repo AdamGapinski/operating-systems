@@ -1,10 +1,21 @@
 CC=gcc
-SOURCES=main.c
-OBJ=./obj
+CFLAGS=-Wall
 IDIR=./include
+ODIR=./obj
+
+DEPS=$(IDIR)/scanner.h
+OBJ=$(ODIR)/main.o $(ODIR)/scanner.o
 
 main: $(OBJ)
 	$(CC) $(CFLAGS) $^ -o $@
 
-$(OBJ): $(SOURCES)
-	$(CC) $(CFLAGS) $^ -o $@
+$(ODIR)/main.o: main.c $(DEPS)
+	$(CC) $(CFLAGS) -c $< -o $@ -I$(IDIR)
+
+$(ODIR)/scanner.o: scanner.c $(DEPS)
+	$(CC) $(CFLAGS) -c $< -o $@ -I$(IDIR)
+clean:
+	rm -f main *.o $(ODIR)/*.o
+
+.PHONY: clean
+

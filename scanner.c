@@ -36,7 +36,7 @@ int skip_blank(char **line) {
         }
     }
     //subtract 1 because of \0 character
-    return blanks - 1;
+    return blanks == 0 ? blanks : blanks - 1;
 }
 
 char *next_token(token_buff *token_buff) {

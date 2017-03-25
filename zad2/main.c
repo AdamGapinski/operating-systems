@@ -22,6 +22,8 @@ long parse_limit(char *string);
 
 void set_limits(rlim_t time_limit, rlim_t size_limit);
 
+void report_rusage();
+
 int main(int argc, char **argv) {
     if (argc != 4) {
         fprintf(stderr, "Error: Wrong number of arguments. %s %s\n",
@@ -62,21 +64,38 @@ jmp_buf jmp_buff;
 void read_lines(FILE *fp, rlim_t time_limit, rlim_t size_limit) {
     size_t line_len = 256;
 
+    int jmp;
     char *line_buff = calloc(line_len, sizeof(*line_buff));
     for (int line_num = 1; getline(&line_buff, &line_len, fp) != -1; ++line_num) {
-        handle_jmp(setjmp(jmp_buff), line_buff, line_num);
-        execute_line(line_buff, time_limit, size_limit);
+        jmp = setjmp(jmp_buff);
+        handle_jmp(jmp, line_buff, line_num);
+        if (jmp == 0) {     //jmp == 0 means we are only setting jump
+            execute_line(line_buff, time_limit, size_limit);
+        }
     }
 
-    free((void *) line_buff);
+    free(line_buff);
+    fclose(fp);
 }
 
 void handle_jmp(int jmp, char *line_buff, int line_num) {
-    if (jmp > 0) {
-        fprintf(stderr, "Error occurred in %d. line: \"%s\" process exit status: %d\n",
-                line_num, strtok(line_buff, "\n"), jmp);
+        //jmp == 1 means that, process returned with exit status different than 0
+    if (jmp == 1) {
+        fprintf(stderr, "Error occurred in %d. line: \"%s\"\n",
+                line_num, strtok(line_buff, "\n"));
         exit(EXIT_FAILURE);
-    } else if (jmp < 0) {
+
+        //jmp == 2 means that, the line has been executed and we can report the process resource usage statistics
+    } else if (jmp == 2) {
+        struct rusage usage;
+        getrusage(RUSAGE_CHILDREN, &usage);
+        const int SEC_TO_MICRO = 1000000;
+        double utime = usage.ru_utime.tv_sec + usage.ru_utime.tv_usec / SEC_TO_MICRO;
+        double stime = usage.ru_stime.tv_sec + usage.ru_stime.tv_usec / SEC_TO_MICRO;
+        printf("line %d\t\"%s\" executed in\t user: %.6f\t system: %.6f \t[seconds]\n", line_num, strtok(line_buff, "\n"), utime, stime);
+    }
+        //jmp == -1 means that, some unexpected error occurred.
+    else if (jmp == -1) {
         fprintf(stderr, "Unexpected error occurred in %d line: %s\n", line_num, strtok(line_buff, "\n"));
         exit(EXIT_FAILURE);
     }
@@ -102,10 +121,13 @@ void remove_argv(char **argv) {
     free(argv);
 }
 
-void read_status(int status) {
+void summarize_line(int status) {
+    //error handling will be made in handle_jump call in main method
     if (WIFEXITED(status)) {
         if (WEXITSTATUS(status) != 0){
-            longjmp(jmp_buff, WEXITSTATUS(status));
+            longjmp(jmp_buff, 1);
+        } else {
+            longjmp(jmp_buff, 2);
         }
     } else {
         longjmp(jmp_buff, -1);
@@ -126,13 +148,20 @@ void process(char *filename, token_buff *buff, rlim_t time_limit, rlim_t size_li
         //execvp is variety of exec that takes it' s arguments as an array of pointers and
         //takes filename of the executable file and search for it in the directories specified by PATH env variable.
         execvp(filename, argv);
+        exit(EXIT_SUCCESS);
     } else {
         int stat = 0;
         wait(&stat);
-        read_status(stat);
         //we do not have to free filename, because pointer to filename is in the argv[0]
         remove_argv(argv);
+
+        summarize_line(stat);
     }
+}
+
+void report_rusage() {
+    //resource usage report will be made in handle_jump call in main method
+    longjmp(jmp_buff, 2);
 }
 
 void set_limits(rlim_t time_limit, rlim_t size_limit) {
@@ -157,8 +186,6 @@ void execute_line(char *buff, rlim_t time_limit, rlim_t size_limit) {
             process(strdup(token), token_buff, time_limit, size_limit);
         }
     }
-
-    remove_token(token_buff);
 }
 
 FILE *open_file(char **filename) {

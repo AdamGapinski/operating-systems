@@ -2,13 +2,15 @@
 #include <stdlib.h>
 #include <memory.h>
 #include <errno.h>
+#include <unistd.h>
+#include <wait.h>
 #include "scanner.h"
 
 void read_lines(FILE *fp) ;
 
 FILE *open_file(char **filename) ;
 
-void parse_line(char *buff) ;
+void execute_line(char *buff) ;
 
 void assign_env(char *var, token_buff *buff);
 
@@ -29,13 +31,52 @@ void read_lines(FILE *fp) {
     char *line_buff = calloc(line_len, sizeof(*line_buff));
 
     while (getline(&line_buff, &line_len, fp) != -1) {
-        parse_line(line_buff);
+        execute_line(line_buff);
     }
 
     free(line_buff);
 }
 
-void parse_line(char *buff) {
+//this method will leave the first element of the returned array free
+char **create_argv(token_buff *buff) {
+    const int DEF_ARG_NUM = 100;
+    char **argv = calloc(DEF_ARG_NUM, sizeof(*argv));
+
+    char *token;
+    for (int i = 1; (token = next_token(buff)) != NULL; ++i) {
+        argv[i] = strdup(token);
+    }
+
+    return argv;
+}
+
+void remove_argv(char **argv) {
+    for (int i = 0; argv[i] != NULL; ++i) {
+        free(argv[i]);
+    }
+    free(argv);
+}
+
+void process(char *filename, token_buff *buff) {
+    //create_argv method returns an array of pointers, starting from it' s second index
+    char **argv = create_argv(buff);
+    argv[0] = filename;
+
+    int pid = fork();
+    if (pid == -1) {
+        perror("Error while forking");
+    } else if (pid == 0) {
+        //execvp is variety of exec that takes it' s arguments as an array of pointers and
+        //takes filename of the executable file and search for it in the directories specified by PATH env variable.
+        execvp(filename, argv);
+    } else {
+        wait(NULL);
+        //we do not have to free filename, because pointer to filename is in the argv[0]
+        remove_argv(argv);
+    }
+}
+
+void execute_line(char *buff) {
     token_buff *token_buff = init_token(buff);
 
     char *token;
@@ -45,7 +86,7 @@ void parse_line(char *buff) {
             //add + 1 to token to skip # char
             assign_env(strdup(token + 1), token_buff);
         } else {
-
+            process(strdup(token), token_buff);
         }
     }
 
@@ -82,6 +123,7 @@ void assign_env(char *var, token_buff *buff) {
     char *token = next_token(buff);
     if (token == NULL) {
         unsetenv(var);
+        free(var);
         return;
     }
 
@@ -107,4 +149,5 @@ void assign_env(char *var, token_buff *buff) {
     //last argument 1 for overwrite
     setenv(var, value, 1);
     free(value);
+    free(var);
 }

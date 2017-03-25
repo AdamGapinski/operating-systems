@@ -9,6 +9,9 @@ OBJ=$(ODIR)/main.o $(ODIR)/scanner.o
 main: $(OBJ)
 	$(CC) $(CFLAGS) $^ -o $@
 
+envreader: envreader.c
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(ODIR)/main.o: main.c $(DEPS)
 	$(CC) $(CFLAGS) -c $< -o $@ -I$(IDIR)
 
@@ -16,7 +19,7 @@ $(ODIR)/scanner.o: scanner.c $(DEPS)
 	$(CC) $(CFLAGS) -c $< -o $@ -I$(IDIR)
 
 clean:
-	rm -f main *.o $(ODIR)/*.o
+	rm -f main envreader *.o $(ODIR)/*.o
 
 .PHONY: clean
 

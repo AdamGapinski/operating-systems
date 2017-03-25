@@ -17,9 +17,21 @@ void assign_env(char *var, token_buff *buff);
 
 void handle_jmp(int jmp, char *line_buff, int line_num) ;
 
+long parse_limit(char *string);
+
 int main(int argc, char **argv) {
-    if (argc != 2) {
-        fprintf(stderr, "Error: Wrong number of arguments. Specify file name of batch file\n");
+    if (argc != 4) {
+        fprintf(stderr, "Error: Wrong number of arguments. %s %s\n",
+                "Specify file name of batch file, CPU time limit (in seconds)",
+                "and memory limit (in megabytes).");
+        exit(EXIT_FAILURE);
+    }
+
+    long time_limit = parse_limit(argv[2]);
+    long size_limit = parse_limit(argv[3]);
+
+    if (time_limit < 0 || size_limit < 0) {
+        fprintf(stderr, "Error: Limit cannot be below zero\n");
         exit(EXIT_FAILURE);
     }
 
@@ -27,6 +39,19 @@ int main(int argc, char **argv) {
     read_lines(fp);
 
     return 0;
+}
+
+long parse_limit(char *string) {
+    long result = 0;
+    char *endptr;
+    result = strtol(string, &endptr, 10);
+
+    if (endptr == string || strcmp(endptr, "") != 0) {
+        fprintf(stderr, "Error: limit argument has to be a number\n");
+        exit(EXIT_FAILURE);
+    }
+
+    return result;
 }
 
 jmp_buf jmp_buff;

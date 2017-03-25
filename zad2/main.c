@@ -2,22 +2,25 @@
 #include <stdlib.h>
 #include <memory.h>
 #include <errno.h>
-#include <unistd.h>
 #include <wait.h>
 #include <setjmp.h>
+#include <unistd.h>
+#include <sys/resource.h>
 #include "scanner.h"
 
-void read_lines(FILE *fp) ;
+void read_lines(FILE *fp, rlim_t time_limit, rlim_t size_limit) ;
 
 FILE *open_file(char **filename) ;
 
-void execute_line(char *buff) ;
+void execute_line(char *buff, rlim_t time_limit, rlim_t size_limit) ;
 
 void assign_env(char *var, token_buff *buff);
 
 void handle_jmp(int jmp, char *line_buff, int line_num) ;
 
 long parse_limit(char *string);
+
+void set_limits(rlim_t time_limit, rlim_t size_limit);
 
 int main(int argc, char **argv) {
     if (argc != 4) {
@@ -36,7 +39,7 @@ int main(int argc, char **argv) {
     }
 
     FILE *fp = open_file(argv);
-    read_lines(fp);
+    read_lines(fp, (rlim_t) time_limit, (rlim_t) size_limit);
 
     return 0;
 }
@@ -56,13 +59,13 @@ long parse_limit(char *string) {
 
 jmp_buf jmp_buff;
 
-void read_lines(FILE *fp) {
+void read_lines(FILE *fp, rlim_t time_limit, rlim_t size_limit) {
     size_t line_len = 256;
 
     char *line_buff = calloc(line_len, sizeof(*line_buff));
     for (int line_num = 1; getline(&line_buff, &line_len, fp) != -1; ++line_num) {
         handle_jmp(setjmp(jmp_buff), line_buff, line_num);
-        execute_line(line_buff);
+        execute_line(line_buff, time_limit, size_limit);
     }
 
     free((void *) line_buff);
@@ -109,7 +112,7 @@ void read_status(int status) {
     }
 }
 
-void process(char *filename, token_buff *buff) {
+void process(char *filename, token_buff *buff, rlim_t time_limit, rlim_t size_limit) {
     //create_argv method returns an array of pointers, starting from it' s second index
     char **argv = create_argv(buff);
     argv[0] = filename;
@@ -118,6 +121,8 @@ void process(char *filename, token_buff *buff) {
     if (pid == -1) {
         perror("Error while forking");
     } else if (pid == 0) {
+        set_limits(time_limit, size_limit);
+
         //execvp is variety of exec that takes it' s arguments as an array of pointers and
         //takes filename of the executable file and search for it in the directories specified by PATH env variable.
         execvp(filename, argv);
@@ -130,7 +135,16 @@ void process(char *filename, token_buff *buff) {
     }
 }
 
-void execute_line(char *buff) {
+void set_limits(rlim_t time_limit, rlim_t size_limit) {
+    struct rlimit *limit = malloc(sizeof(*limit));
+    limit->rlim_cur = limit->rlim_max = time_limit;
+    setrlimit(RLIMIT_CPU, limit);
+    limit->rlim_cur = limit->rlim_max = size_limit;
+    setrlimit(RLIMIT_AS, limit);
+    free(limit);
+}
+
+void execute_line(char *buff, rlim_t time_limit, rlim_t size_limit) {
     token_buff *token_buff = init_token(buff);
 
     char *token;
@@ -140,7 +154,7 @@ void execute_line(char *buff) {
             //add + 1 to token to skip # char
             assign_env(strdup(token + 1), token_buff);
         } else {
-            process(strdup(token), token_buff);
+            process(strdup(token), token_buff, time_limit, size_limit);
         }
     }
 

@@ -35,12 +35,16 @@ void read_lines(FILE *fp) {
     size_t line_len = 256;
 
     char *line_buff = calloc(line_len, sizeof(*line_buff));
+    int jmp;
     for (int line_num = 1; getline(&line_buff, &line_len, fp) != -1; ++line_num) {
-        handle_jmp(setjmp(jmp_buff), line_buff, line_num);
-        execute_line(line_buff);
+        jmp = setjmp(jmp_buff);
+        handle_jmp(jmp, line_buff, line_num);
+        if (jmp == 0) {
+            execute_line(line_buff);
+        };
     }
 
-    free((void *) line_buff);
+    free(line_buff);
 }
 
 void handle_jmp(int jmp, char *line_buff, int line_num) {
@@ -56,7 +60,7 @@ void handle_jmp(int jmp, char *line_buff, int line_num) {
 
 //this method will leave the first element of the returned array free
 char **create_argv(token_buff *buff) {
-    const int DEF_ARG_NUM = 100;
+    const int DEF_ARG_NUM = 25;
     char **argv = calloc(DEF_ARG_NUM, sizeof(*argv));
 
     char *token;

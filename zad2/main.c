@@ -22,8 +22,6 @@ long parse_limit(char *string);
 
 void set_limits(rlim_t time_limit, rlim_t size_limit);
 
-void report_rusage();
-
 int main(int argc, char **argv) {
     if (argc != 4) {
         fprintf(stderr, "Error: Wrong number of arguments. %s %s\n",
@@ -69,7 +67,7 @@ void read_lines(FILE *fp, rlim_t time_limit, rlim_t size_limit) {
     for (int line_num = 1; getline(&line_buff, &line_len, fp) != -1; ++line_num) {
         jmp = setjmp(jmp_buff);
         handle_jmp(jmp, line_buff, line_num);
-        if (jmp == 0) {     //jmp == 0 means we are only setting jump
+        if (jmp == 0) {     //jmp == 0 means we have only set jump_buff
             execute_line(line_buff, time_limit, size_limit);
         }
     }
@@ -103,7 +101,7 @@ void handle_jmp(int jmp, char *line_buff, int line_num) {
 
 //this method will leave the first element of the returned array free
 char **create_argv(token_buff *buff) {
-    const int DEF_ARG_NUM = 100;
+    const int DEF_ARG_NUM = 25;
     char **argv = calloc(DEF_ARG_NUM, sizeof(*argv));
 
     char *token;
@@ -147,28 +145,28 @@ void process(char *filename, token_buff *buff, rlim_t time_limit, rlim_t size_li
 
         //execvp is variety of exec that takes it' s arguments as an array of pointers and
         //takes filename of the executable file and search for it in the directories specified by PATH env variable.
-        execvp(filename, argv);
-        exit(EXIT_SUCCESS);
+        if (execvp(filename, argv) == 0) {
+            exit(EXIT_SUCCESS);
+        } else {
+            perror("Error while executing file");
+            exit(EXIT_FAILURE);
+        }
     } else {
         int stat = 0;
         wait(&stat);
         //we do not have to free filename, because pointer to filename is in the argv[0]
         remove_argv(argv);
-
         summarize_line(stat);
     }
 }
 
-void report_rusage() {
-    //resource usage report will be made in handle_jump call in main method
-    longjmp(jmp_buff, 2);
-}
-
 void set_limits(rlim_t time_limit, rlim_t size_limit) {
+    const int MEGABYTES_TO_BYTES = 1000000;
+
     struct rlimit *limit = malloc(sizeof(*limit));
     limit->rlim_cur = limit->rlim_max = time_limit;
     setrlimit(RLIMIT_CPU, limit);
-    limit->rlim_cur = limit->rlim_max = size_limit;
+    limit->rlim_cur = limit->rlim_max = (rlim_t) (size_limit * MEGABYTES_TO_BYTES);
     setrlimit(RLIMIT_AS, limit);
     free(limit);
 }

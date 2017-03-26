@@ -61,14 +61,20 @@ jmp_buf jmp_buff;
 
 void read_lines(FILE *fp, rlim_t time_limit, rlim_t size_limit) {
     size_t line_len = 256;
-
     int jmp;
     char *line_buff = calloc(line_len, sizeof(*line_buff));
+
     for (int line_num = 1; getline(&line_buff, &line_len, fp) != -1; ++line_num) {
-        jmp = setjmp(jmp_buff);
-        handle_jmp(jmp, line_buff, line_num);
-        if (jmp == 0) {     //jmp == 0 means we have only set jump_buff
+        /*
+         *set jmp may return in two cases:
+         *  1. it have just set jmp_buf - saved stack state, then it returns 0 and we should just execute the line.
+         *  2. from longjmp(jmp_buff) call and it means that the line has been executed, so we need to summarize it
+         *     and then we should go to next line. That is why we have set jmp_buf.
+         * */
+        if ((jmp = setjmp(jmp_buff)) == 0) {
             execute_line(line_buff, time_limit, size_limit);
+        } else {
+            handle_jmp(jmp, line_buff, line_num);
         }
     }
 
@@ -76,25 +82,29 @@ void read_lines(FILE *fp, rlim_t time_limit, rlim_t size_limit) {
     fclose(fp);
 }
 
-void handle_jmp(int jmp, char *line_buff, int line_num) {
-        //jmp == 1 means that, process returned with exit status different than 0
-    if (jmp == 1) {
-        fprintf(stderr, "Error occurred in %d. line: \"%s\"\n",
-                line_num, strtok(line_buff, "\n"));
-        exit(EXIT_FAILURE);
+void report_resource_usage(char *line_buff, int line_num) {
+    struct rusage usage;
+    getrusage(RUSAGE_CHILDREN, &usage);
+    const int SEC_TO_MICRO = 1000000;
+    double utime = usage.ru_utime.tv_sec + usage.ru_utime.tv_usec / SEC_TO_MICRO;
+    double stime = usage.ru_stime.tv_sec + usage.ru_stime.tv_usec / SEC_TO_MICRO;
+    printf("line %d\t\"%s\" executed in\t user: %.6f\t system: %.6f \t[seconds]\n", line_num, strtok(line_buff, "\n"), utime, stime);
+}
 
-        //jmp == 2 means that, the line has been executed and we can report the process resource usage statistics
+void handle_jmp(int jmp, char *line_buff, int line_num) {
+    if (jmp == 1) {
+        //jmp == 1 means that, process returned with exit status different than 0, so some kind of error occured
+        fprintf(stderr, "Error occurred in %d. line: \"%s\"\n", line_num, strtok(line_buff, "\n"));
+        exit(EXIT_FAILURE);
     } else if (jmp == 2) {
-        struct rusage usage;
-        getrusage(RUSAGE_CHILDREN, &usage);
-        const int SEC_TO_MICRO = 1000000;
-        double utime = usage.ru_utime.tv_sec + usage.ru_utime.tv_usec / SEC_TO_MICRO;
-        double stime = usage.ru_stime.tv_sec + usage.ru_stime.tv_usec / SEC_TO_MICRO;
-        printf("line %d\t\"%s\" executed in\t user: %.6f\t system: %.6f \t[seconds]\n", line_num, strtok(line_buff, "\n"), utime, stime);
-    }
-        //jmp == -1 means that, some unexpected error occurred.
-    else if (jmp == -1) {
-        fprintf(stderr, "Unexpected error occurred in %d line: %s\n", line_num, strtok(line_buff, "\n"));
+        //jmp == 2 means that, the line has been executed and we can report the process resource usage statistics
+        report_resource_usage(line_buff, line_num);
+    } else if (jmp == 3) {
+        fprintf(stderr, "%d line: \"%s\" Error: cpu time limit exceeded\n", line_num, strtok(line_buff, "\n"));
+    } else if (jmp == 4) {
+        fprintf(stderr, "%d line: \"%s\" Error: memory limit exceeded\n", line_num, strtok(line_buff, "\n"));
+    } else if (jmp == -1) {
+        fprintf(stderr, "Unexpected error occurred in %d line: \"%s\"\n", line_num, strtok(line_buff, "\n"));
         exit(EXIT_FAILURE);
     }
 }
@@ -120,14 +130,27 @@ void remove_argv(char **argv) {
 }
 
 void summarize_line(int status) {
-    //error handling will be made in handle_jump call in main method
+    //error handling will be made in handle_jump call in the read_lines method
     if (WIFEXITED(status)) {
+        //This is true if the process has exited from main return or exit method call.
         if (WEXITSTATUS(status) != 0){
+            //Means that, the process has exited with status indicating an error.
             longjmp(jmp_buff, 1);
         } else {
+            //No error occured in the process.
             longjmp(jmp_buff, 2);
         }
+    } else if (WIFSIGNALED(status)) {
+        //The process has terminated from signal
+        if (WTERMSIG(status) == 9) {
+            //SIGKILL
+            longjmp(jmp_buff, 3);
+        } else if (WTERMSIG(status) == 11) {
+            //SIGSEGV
+            longjmp(jmp_buff, 4);
+        }
     } else {
+        //some other error occurred in the process.
         longjmp(jmp_buff, -1);
     }
 }
@@ -162,7 +185,6 @@ void process(char *filename, token_buff *buff, rlim_t time_limit, rlim_t size_li
 
 void set_limits(rlim_t time_limit, rlim_t size_limit) {
     const int MEGABYTES_TO_BYTES = 1000000;
-
     struct rlimit *limit = malloc(sizeof(*limit));
     limit->rlim_cur = limit->rlim_max = time_limit;
     setrlimit(RLIMIT_CPU, limit);
@@ -173,8 +195,8 @@ void set_limits(rlim_t time_limit, rlim_t size_limit) {
 
 void execute_line(char *buff, rlim_t time_limit, rlim_t size_limit) {
     token_buff *token_buff = init_token(buff);
-
     char *token;
+
     while ((token = next_token(token_buff)) != NULL) {
         //token is not zero length, otherwise next_token function would return NULL
         if (token[0] == '#') {
@@ -194,6 +216,7 @@ FILE *open_file(char **filename) {
     }
     return fp;
 }
+
 const size_t BASIC_VAL_LEN = 256;
 
 const size_t PROLONG_VAL_LEN = 100;

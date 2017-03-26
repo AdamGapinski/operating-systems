@@ -96,10 +96,10 @@ void handle_jmp(int jmp, char *line_buff, int line_num) {
         //jmp equal to 100 means that, the line has been executed and we can report the process resource usage statistics
         report_resource_usage(line_buff, line_num);
     } else if (jmp == SIGXCPU || jmp == SIGKILL) {
-        fprintf(stderr, "%d. line: \"%s\" Error: cpu time limit exceeded\n", line_num, strtok(line_buff, "\n"));
+        fprintf(stderr, "%d. line: \"%s\" Error: CPU time limit exceeded\n", line_num, strtok(line_buff, "\n"));
         exit(EXIT_FAILURE);
     } else if (jmp == SIGSEGV) {
-        fprintf(stderr, "%d. line: \"%s\" Error: memory limit exceeded\n", line_num, strtok(line_buff, "\n"));
+        fprintf(stderr, "%d. line: \"%s\" Error: Segmentation fault\n", line_num, strtok(line_buff, "\n"));
         exit(EXIT_FAILURE);
     } else {
         fprintf(stderr, "%d. line: \"%s\" Unexpected error occurred.", line_num, strtok(line_buff, "\n"));

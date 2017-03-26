@@ -20,7 +20,7 @@ void handle_jmp(int jmp, char *line_buff, int line_num) ;
 
 long parse_limit(char *string);
 
-void set_limits(rlim_t time_limit, rlim_t size_limit);
+void set_limits(rlim_t time_limit, rlim_t size_limit) ;
 
 int main(int argc, char **argv) {
     if (argc != 4) {
@@ -92,19 +92,17 @@ void report_resource_usage(char *line_buff, int line_num) {
 }
 
 void handle_jmp(int jmp, char *line_buff, int line_num) {
-    if (jmp == 1) {
-        //jmp == 1 means that, process returned with exit status different than 0, so some kind of error occured
-        fprintf(stderr, "Error occurred in %d. line: \"%s\"\n", line_num, strtok(line_buff, "\n"));
-        exit(EXIT_FAILURE);
-    } else if (jmp == 2) {
-        //jmp == 2 means that, the line has been executed and we can report the process resource usage statistics
+    if (jmp == 100) {
+        //jmp equal to 100 means that, the line has been executed and we can report the process resource usage statistics
         report_resource_usage(line_buff, line_num);
-    } else if (jmp == 3) {
-        fprintf(stderr, "%d line: \"%s\" Error: cpu time limit exceeded\n", line_num, strtok(line_buff, "\n"));
-    } else if (jmp == 4) {
-        fprintf(stderr, "%d line: \"%s\" Error: memory limit exceeded\n", line_num, strtok(line_buff, "\n"));
-    } else if (jmp == -1) {
-        fprintf(stderr, "Unexpected error occurred in %d line: \"%s\"\n", line_num, strtok(line_buff, "\n"));
+    } else if (jmp == SIGXCPU || jmp == SIGKILL) {
+        fprintf(stderr, "%d. line: \"%s\" Error: cpu time limit exceeded\n", line_num, strtok(line_buff, "\n"));
+        exit(EXIT_FAILURE);
+    } else if (jmp == SIGSEGV) {
+        fprintf(stderr, "%d. line: \"%s\" Error: memory limit exceeded\n", line_num, strtok(line_buff, "\n"));
+        exit(EXIT_FAILURE);
+    } else {
+        fprintf(stderr, "%d. line: \"%s\" Unexpected error occurred.", line_num, strtok(line_buff, "\n"));
         exit(EXIT_FAILURE);
     }
 }
@@ -130,29 +128,22 @@ void remove_argv(char **argv) {
 }
 
 void summarize_line(int status) {
-    //error handling will be made in handle_jump call in the read_lines method
+    //jump handling will be made in handle_jump call in the read_lines method
     if (WIFEXITED(status)) {
         //This is true if the process has exited from main return or exit method call.
-        if (WEXITSTATUS(status) != 0){
-            //Means that, the process has exited with status indicating an error.
-            longjmp(jmp_buff, 1);
-        } else {
-            //No error occured in the process.
-            longjmp(jmp_buff, 2);
+        if (WEXITSTATUS(status) == 0) {
+            //longjmp cannot cause 0 to be returned. Instead it would return 1 and could be
+            //mistaken with SIGHUP signal
+            longjmp(jmp_buff, 100);
         }
+        longjmp(jmp_buff, WEXITSTATUS(status));
     } else if (WIFSIGNALED(status)) {
         //The process has terminated from signal
-        if (WTERMSIG(status) == 9) {
-            //SIGKILL
-            longjmp(jmp_buff, 3);
-        } else if (WTERMSIG(status) == 11) {
-            //SIGSEGV
-            longjmp(jmp_buff, 4);
-        }
-    } else {
-        //some other error occurred in the process.
-        longjmp(jmp_buff, -1);
+        longjmp(jmp_buff, WTERMSIG(status));
     }
+
+    //unexpected error
+    longjmp(jmp_buff, -1);
 }
 
 void process(char *filename, token_buff *buff, rlim_t time_limit, rlim_t size_limit) {
@@ -186,10 +177,18 @@ void process(char *filename, token_buff *buff, rlim_t time_limit, rlim_t size_li
 void set_limits(rlim_t time_limit, rlim_t size_limit) {
     const int MEGABYTES_TO_BYTES = 1000000;
     struct rlimit *limit = malloc(sizeof(*limit));
+
     limit->rlim_cur = limit->rlim_max = time_limit;
-    setrlimit(RLIMIT_CPU, limit);
+    if (setrlimit(RLIMIT_CPU, limit) != 0) {
+        perror("Error");
+        exit(EXIT_FAILURE);
+    }
+
     limit->rlim_cur = limit->rlim_max = (rlim_t) (size_limit * MEGABYTES_TO_BYTES);
-    setrlimit(RLIMIT_AS, limit);
+    if (setrlimit(RLIMIT_AS, limit) != 0){
+        perror("Error");
+        exit(EXIT_FAILURE);
+    }
     free(limit);
 }
 
@@ -197,7 +196,7 @@ void execute_line(char *buff, rlim_t time_limit, rlim_t size_limit) {
     token_buff *token_buff = init_token(buff);
     char *token;
 
-    while ((token = next_token(token_buff)) != NULL) {
+    if ((token = next_token(token_buff)) != NULL) {
         //token is not zero length, otherwise next_token function would return NULL
         if (token[0] == '#') {
             //add + 1 to token to skip # char

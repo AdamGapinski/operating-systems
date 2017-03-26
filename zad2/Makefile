@@ -12,7 +12,7 @@ main: $(OBJ)
 	$(CC) $(CFLAGS) $^ -o $@
 
 resource: resource.c
-	$(CC) $(CFLAGS) $^ -o ../cmake-build-debug/$@
+	$(CC) $(CFLAGS) $^ -o $@
 
 $(ODIR)/main.o: main.c $(DEPS)
 	$(CC) $(CFLAGS) -c $< -o $@ -I$(IDIR)

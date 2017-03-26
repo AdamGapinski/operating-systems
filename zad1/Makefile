@@ -6,6 +6,8 @@ ODIR=./obj
 DEPS=$(IDIR)/scanner.h
 OBJ=$(ODIR)/main.o $(ODIR)/scanner.o
 
+all: main envreader
+
 main: $(OBJ)
 	$(CC) $(CFLAGS) $^ -o $@
 

@@ -82,13 +82,18 @@ void read_lines(FILE *fp, rlim_t time_limit, rlim_t size_limit) {
     fclose(fp);
 }
 
+double total_utime = 0;
+double total_stime = 0;
+
 void report_resource_usage(char *line_buff, int line_num) {
     struct rusage usage;
     getrusage(RUSAGE_CHILDREN, &usage);
-    const int SEC_TO_MICRO = 1000000;
-    double utime = usage.ru_utime.tv_sec + usage.ru_utime.tv_usec / SEC_TO_MICRO;
-    double stime = usage.ru_stime.tv_sec + usage.ru_stime.tv_usec / SEC_TO_MICRO;
-    printf("line %d\t\"%s\" executed in\t user: %.6f\t system: %.6f \t[seconds]\n", line_num, strtok(line_buff, "\n"), utime, stime);
+    double SEC_TO_MICRO = 1000000;
+    double utime = usage.ru_utime.tv_sec + usage.ru_utime.tv_usec / SEC_TO_MICRO - total_utime;
+    double stime = usage.ru_stime.tv_sec + usage.ru_stime.tv_usec / SEC_TO_MICRO - total_stime;
+    total_utime += utime;
+    total_stime += stime;
+    printf("line %d\t\"%s\" executed in\t user: %.3fs\t system: %.3fs\t\n", line_num, strtok(line_buff, "\n"), utime, stime);
 }
 
 void handle_jmp(int jmp, char *line_buff, int line_num) {

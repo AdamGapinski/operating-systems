@@ -33,27 +33,33 @@ jmp_buf jmp_buff;
 
 void read_lines(FILE *fp) {
     size_t line_len = 256;
-
-    char *line_buff = calloc(line_len, sizeof(*line_buff));
     int jmp;
+    char *line_buff = calloc(line_len, sizeof(*line_buff));
+
     for (int line_num = 1; getline(&line_buff, &line_len, fp) != -1; ++line_num) {
-        jmp = setjmp(jmp_buff);
-        handle_jmp(jmp, line_buff, line_num);
-        if (jmp == 0) {
+        /*
+         *set jmp may return in two cases:
+         *  1. it have just set jmp_buf - saved stack state, then it returns 0 and we should just execute the line.
+         *  2. from longjmp(jmp_buff) call and it means that the line has been executed, so we need to check
+         *  for errors and then we should go to next line. That is why we have set jmp_buf.
+         * */
+        if ((jmp = setjmp(jmp_buff)) == 0) {
             execute_line(line_buff);
-        };
+        } else {
+            handle_jmp(jmp, line_buff, line_num);
+        }
     }
 
     free(line_buff);
+    fclose(fp);
 }
 
 void handle_jmp(int jmp, char *line_buff, int line_num) {
     if (jmp > 0) {
-        fprintf(stderr, "Error occurred in %d. line: \"%s\" process exit status: %d\n",
-                line_num, strtok(line_buff, "\n"), jmp);
+        fprintf(stderr, "%d. line: \"%s\" Error: Process exit status %d\n", line_num, strtok(line_buff, "\n"), jmp);
         exit(EXIT_FAILURE);
     } else if (jmp < 0) {
-        fprintf(stderr, "Unexpected error occurred in %d line: %s\n", line_num, strtok(line_buff, "\n"));
+        fprintf(stderr, "%d. line: \"%s\" Unexpected error occurred.", line_num, strtok(line_buff, "\n"));
         exit(EXIT_FAILURE);
     }
 }
@@ -78,7 +84,7 @@ void remove_argv(char **argv) {
     free(argv);
 }
 
-void read_status(int status) {
+void summarize_line(int status) {
     if (WIFEXITED(status)) {
         if (WEXITSTATUS(status) != 0){
             longjmp(jmp_buff, WEXITSTATUS(status));
@@ -99,21 +105,26 @@ void process(char *filename, token_buff *buff) {
     } else if (pid == 0) {
         //execvp is variety of exec that takes it' s arguments as an array of pointers and
         //takes filename of the executable file and search for it in the directories specified by PATH env variable.
-        execvp(filename, argv);
+        if (execvp(filename, argv) == 0) {
+            exit(EXIT_SUCCESS);
+        } else {
+            perror("Error while executing file");
+            exit(EXIT_FAILURE);
+        }
     } else {
         int stat = 0;
         wait(&stat);
-        read_status(stat);
         //we do not have to free filename, because pointer to filename is in the argv[0]
         remove_argv(argv);
+        summarize_line(stat);
     }
 }
 
 void execute_line(char *buff) {
     token_buff *token_buff = init_token(buff);
-
     char *token;
-    while ((token = next_token(token_buff)) != NULL) {
+
+    if ((token = next_token(token_buff)) != NULL) {
         //token is not zero length, otherwise next_token function would return NULL
         if (token[0] == '#') {
             //add + 1 to token to skip # char
@@ -122,8 +133,6 @@ void execute_line(char *buff) {
             process(strdup(token), token_buff);
         }
     }
-
-    remove_token(token_buff);
 }
 
 FILE *open_file(char **filename) {
@@ -134,6 +143,7 @@ FILE *open_file(char **filename) {
     }
     return fp;
 }
+
 const size_t BASIC_VAL_LEN = 256;
 
 const size_t PROLONG_VAL_LEN = 100;

@@ -93,7 +93,7 @@ void report_resource_usage(char *line_buff, int line_num) {
     double stime = usage.ru_stime.tv_sec + usage.ru_stime.tv_usec / SEC_TO_MICRO - total_stime;
     total_utime += utime;
     total_stime += stime;
-    printf("line %d\t\"%s\" executed in\t user: %.3fs\t system: %.3fs\t\n", line_num, strtok(line_buff, "\n"), utime, stime);
+    printf("line %d\t\"%s\" executed in\t user: %.6fs\t system: %.6fs\t\n", line_num, strtok(line_buff, "\n"), utime, stime);
 }
 
 void handle_jmp(int jmp, char *line_buff, int line_num) {
@@ -106,8 +106,11 @@ void handle_jmp(int jmp, char *line_buff, int line_num) {
     } else if (jmp == SIGSEGV) {
         fprintf(stderr, "%d. line: \"%s\" Error: Segmentation fault\n", line_num, strtok(line_buff, "\n"));
         exit(EXIT_FAILURE);
+    } else if (jmp == EXIT_FAILURE) {
+        fprintf(stderr, "%d. line: \"%s\" Exited with failure status\n", line_num, strtok(line_buff, "\n"));
+        exit(EXIT_FAILURE);
     } else {
-        fprintf(stderr, "%d. line: \"%s\" Unexpected error occurred.", line_num, strtok(line_buff, "\n"));
+        fprintf(stderr, "%d. line: \"%s\" Unexpected error occurred\n", line_num, strtok(line_buff, "\n"));
         exit(EXIT_FAILURE);
     }
 }
@@ -132,7 +135,7 @@ void remove_argv(char **argv) {
     free(argv);
 }
 
-void summarize_line(int status) {
+void check_error(int status) {
     //jump handling will be made in handle_jump call in the read_lines method
     if (WIFEXITED(status)) {
         //This is true if the process has exited from main return or exit method call.
@@ -176,7 +179,7 @@ void process(char *filename, token_buff *buff, rlim_t time_limit, rlim_t size_li
         wait(&stat);
         //we do not have to free filename, because pointer to filename is in the argv[0]
         remove_argv(argv);
-        summarize_line(stat);
+        check_error(stat);
         //never returns
     }
 }

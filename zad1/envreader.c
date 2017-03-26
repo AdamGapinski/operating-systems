@@ -10,7 +10,7 @@ int main(int argc, char **argv) {
     char *env = getenv(argv[1]);
 
     if (env == NULL) {
-        printf("%s environment variable does not exists.\n", argv[1]);
+        printf("%s environment variable does not exist.\n", argv[1]);
     } else {
         printf("%s=%s\n", argv[1], env);
     }

@@ -6,11 +6,13 @@ ODIR=./obj
 DEPS=$(IDIR)/scanner.h
 OBJ=$(ODIR)/main.o $(ODIR)/scanner.o
 
+all: main resource
+
 main: $(OBJ)
 	$(CC) $(CFLAGS) $^ -o $@
 
 resource: resource.c
-	$(CC) $(CFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) $^ -o ../cmake-build-debug/$@
 
 $(ODIR)/main.o: main.c $(DEPS)
 	$(CC) $(CFLAGS) -c $< -o $@ -I$(IDIR)

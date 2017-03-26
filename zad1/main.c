@@ -102,6 +102,7 @@ void process(char *filename, token_buff *buff) {
     int pid = fork();
     if (pid == -1) {
         perror("Error while forking");
+        exit(EXIT_FAILURE);
     } else if (pid == 0) {
         //execvp is variety of exec that takes it' s arguments as an array of pointers and
         //takes filename of the executable file and search for it in the directories specified by PATH env variable.
@@ -117,6 +118,7 @@ void process(char *filename, token_buff *buff) {
         //we do not have to free filename, because pointer to filename is in the argv[0]
         remove_argv(argv);
         summarize_line(stat);
+        //never returns
     }
 }
 

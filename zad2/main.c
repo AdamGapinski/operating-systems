@@ -154,6 +154,7 @@ void process(char *filename, token_buff *buff, rlim_t time_limit, rlim_t size_li
     int pid = fork();
     if (pid == -1) {
         perror("Error while forking");
+        exit(EXIT_FAILURE);
     } else if (pid == 0) {
         set_limits(time_limit, size_limit);
 
@@ -171,6 +172,7 @@ void process(char *filename, token_buff *buff, rlim_t time_limit, rlim_t size_li
         //we do not have to free filename, because pointer to filename is in the argv[0]
         remove_argv(argv);
         summarize_line(stat);
+        //never returns
     }
 }
 

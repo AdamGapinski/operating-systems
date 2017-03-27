@@ -6,6 +6,7 @@
 #include <setjmp.h>
 #include <unistd.h>
 #include <sys/resource.h>
+#include <float.h>
 #include "scanner.h"
 
 void read_lines(FILE *fp, rlim_t time_limit, rlim_t size_limit) ;
@@ -82,18 +83,41 @@ void read_lines(FILE *fp, rlim_t time_limit, rlim_t size_limit) {
     fclose(fp);
 }
 
-double total_utime = 0;
-double total_stime = 0;
+struct usge {
+    double utime, stime;
+    long minflst, majflt, inblock, oublock, nvcsw, nivcsw;
+} total_usage;
+
+double get_diff_dbl(double *prev, double actual) {
+    double result;
+    result = actual - *prev;
+    *prev = actual;
+    return result;
+}
+
+long get_diff_lng(long *prev, long actual) {
+    long result;
+    result = actual - *prev;
+    *prev = actual;
+    return result;
+}
 
 void report_resource_usage(char *line_buff, int line_num) {
     struct rusage usage;
     getrusage(RUSAGE_CHILDREN, &usage);
     double SEC_TO_MICRO = 1000000;
-    double utime = usage.ru_utime.tv_sec + usage.ru_utime.tv_usec / SEC_TO_MICRO - total_utime;
-    double stime = usage.ru_stime.tv_sec + usage.ru_stime.tv_usec / SEC_TO_MICRO - total_stime;
-    total_utime += utime;
-    total_stime += stime;
-    printf("line %d\t\"%s\" executed in\t user: %.6fs\t system: %.6fs\t\n", line_num, strtok(line_buff, "\n"), utime, stime);
+
+    double utime = get_diff_dbl(&total_usage.utime, usage.ru_utime.tv_sec + usage.ru_utime.tv_usec / SEC_TO_MICRO);
+    double stime = get_diff_dbl(&total_usage.stime, usage.ru_stime.tv_sec + usage.ru_stime.tv_usec / SEC_TO_MICRO);
+
+    long minflst = get_diff_lng(&total_usage.minflst, usage.ru_minflt);
+    long majflt = get_diff_lng(&total_usage.majflt, usage.ru_majflt);
+    long inblock = get_diff_lng(&total_usage.inblock, usage.ru_inblock);
+    long oublock = get_diff_lng(&total_usage.oublock, usage.ru_oublock);
+    long nvcsw = get_diff_lng(&total_usage.nvcsw, usage.ru_nvcsw);
+    long nivcsw = get_diff_lng(&total_usage.nivcsw, usage.ru_nivcsw);
+
+    printf("line %d\t\"%s\" executed in\t user: %.6fs\t system: %.6fs\tblock\n", line_num, strtok(line_buff, "\n"), utime, stime);
 }
 
 void handle_jmp(int jmp, char *line_buff, int line_num) {

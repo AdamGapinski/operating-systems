@@ -56,7 +56,7 @@ void read_lines(FILE *fp) {
 
 void handle_jmp(int jmp, char *line_buff, int line_num) {
     if (jmp > 0) {
-        fprintf(stderr, "%d. line: \"%s\" Exited with failure status\n", line_num, strtok(line_buff, "\n"), jmp);
+        fprintf(stderr, "%d. line: \"%s\" Exited with failure status\n", line_num, strtok(line_buff, "\n"));
         exit(EXIT_FAILURE);
     } else if (jmp < 0) {
         fprintf(stderr, "%d. line: \"%s\" Unexpected error occurred\n", line_num, strtok(line_buff, "\n"));
@@ -117,7 +117,7 @@ void process(char *filename, token_buff *buff) {
         wait(&stat);
         //we do not have to free filename, because pointer to filename is in the argv[0]
         remove_argv(argv);
-        summarize_line(stat);
+        check_error(stat);
         //never returns
     }
 }

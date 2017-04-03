@@ -28,6 +28,10 @@ void typed_stop_handler(int signo, siginfo_t *info, void *ptr) {
     } else if (direction == 'B') {
         direction = 'F';
     }
+
+    struct sigaction action;
+    action.sa_sigaction = typed_stop_handler;
+    sigaction(SIGTSTP, &action, NULL);
 }
 
 void print_alphabet() {

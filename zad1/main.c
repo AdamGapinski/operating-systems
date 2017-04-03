@@ -18,8 +18,8 @@ int main() {
 }
 
 void interrupt_handler(int signo) {
-    printf("Odebrano sygnal SIGINT\n");
-    exit(signo);
+    write(STDOUT_FILENO, "Odebrano sygnal SIGINT\n", 23);
+    _exit(signo);
 }
 
 void typed_stop_handler(int signo, siginfo_t *info, void *ptr) {

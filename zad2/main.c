@@ -3,29 +3,36 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <time.h>
-#include <bits/siginfo.h>
 #include <wait.h>
+#include <string.h>
 
 void fork_processes(int processes) ;
 
 void set_signal_handlers() ;
 
-void process();
+void logger(char *msg, int parent_id, int pid, int slp_flag) ;
 
-void log(char *msg, int slp_flag) ;
+void process(int parent) ;
 
-int requests_received;
-int exp_requests;
-int child_processes;
+void set_rt_signals();
+
+void set_usr1();
+
+void set_sigint();
+
+volatile int requests_received;
+volatile int child_processes;
+int EXP_REQUESTS;
 
 typedef struct proc_hist {
-    pid_t pid;
-    int *signals;
+    volatile pid_t pid;
+    volatile int *signals;
+    volatile int sig_count;
 } proc_hist;
 
 struct processes_info {
-    proc_hist **procs;
-    int hist_len;
+    volatile proc_hist **procs;
+    volatile int hist_len;
 } proc_info;
 
 int main(int argc, char *argv[]) {
@@ -33,7 +40,6 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Error: Wrong number of arguments. Specify two arguments: N - processes and K - requests\n");
         exit(EXIT_FAILURE);
     }
-
     int processes, requests;
     if (sscanf(argv[1], "%d", &processes) != 1) {
         fprintf(stderr, "Error: While parsing N - processes number\n");
@@ -47,7 +53,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Error: Number of requests cannot be greater than number of processes\n");
         exit(EXIT_FAILURE);
     }
-    exp_requests = requests;
+    EXP_REQUESTS = requests;
     child_processes = processes;
 
     set_signal_handlers();
@@ -60,39 +66,51 @@ void fork_processes(int processes) {
     proc_info.hist_len = 0;
     const int MAX_SIGNALS_NUM = 10;
 
+    int parent = getpid();
     for (int i = 0; i < processes; ++i) {
-        int ch;
-        if ((ch = fork()) == 0) {
-            printf("PID = %d\n", getpid());
-            process();
+        if (fork() == 0) {
+            logger("child process", getpid(), 0, 0);
+            process(parent);
         } else {
             proc_info.procs[i] = malloc(sizeof(*proc_info.procs[i]));
-            proc_info.procs[i]->pid = ch;
             proc_info.procs[i]->signals = malloc(MAX_SIGNALS_NUM);
+            proc_info.procs[i]->sig_count = 0;
         }
     }
     while (1) {
-        //todo test sleep values
         sleep(1);
+        if (child_processes == 0) {
+            for (int i = 0; i < proc_info.hist_len; ++i) {
+                volatile proc_hist *info = proc_info.procs[i];
+                int status = 0;
+                int pid = info->pid;
+                int sig_count = info->sig_count;
+
+                waitpid(pid, &status, 0);
+                printf("\tProcess id %d\texit status %d\t%d signals:\n", pid, WEXITSTATUS(status), sig_count);
+                for (int j = 0; j < info->sig_count; ++j) {
+                    printf("\t\t%s", strsignal(info->signals[j]));
+                }
+                printf("\n\n");
+
+                logger("exited with status", pid, WEXITSTATUS(status), 0);
+            }
+            logger("child_processes", getpid(), child_processes, 0);
+            exit(EXIT_SUCCESS);
+        }
     }
 }
 
-void handle_cont(int signo, siginfo_t *info, void *ptr) {
-    return;
-}
+void process(int parent) {
+    sigset_t set;
+    sigemptyset(&set);
+    sigaddset(&set, SIGUSR2);
+    sigprocmask(SIG_BLOCK, &set, NULL);
 
-void process() {
-    //setting handling of SIGCONT
-    struct sigaction cont_action;
-    cont_action.sa_sigaction = handle_cont;
-    cont_action.sa_flags |= SA_SIGINFO;
-    sigaction(SIGCONT, &cont_action, NULL);
-
-    //todo set time randomization
-    srand48(time(NULL));
+    srand48(time(NULL) ^ (getpid()<<16));
     int sleep_time = (int) (drand48() * 11);
     sleep((unsigned int) sleep_time);
-    printf("PID = %d, randomized %d time\n", getpid(), sleep_time);
+    logger("randomized time", getpid(), sleep_time, 0);
 
     //sending request
     union sigval usr_sigval;
@@ -100,124 +118,137 @@ void process() {
     struct timespec start;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
-    log("sending SIGRTMIN signal as a request", 1);
-    if (sigqueue(getppid(), SIGRTMIN, usr_sigval) != 0) {
+    logger("sending USR1 request", getpid(), getppid(), 0);
+    if (sigqueue(getppid(), SIGUSR1, usr_sigval) != 0) {
         perror("Error:");
     }
 
-    printf("PID = %d stopped\n", getpid());
-    // todo program receives sigcont before getting to pause
-    pause();
-    //waiting for response
-    printf("PID = %d continued\n", getpid());
+    struct timespec time;
+    time.tv_sec = 11;
+    time.tv_nsec = 0;
 
-    //ending job
-    int signal_no = SIGRTMIN + 10;
+    logger("waits", getpid(), getppid(), 0);
+    //waiting for response
+    if (sigtimedwait(&set, NULL, &time) == -1) {
+        child_processes--;
+        exit(100);
+    }
+    logger("continued", getpid(), getppid(), 0);
+
+
+    int signal_no = SIGRTMIN + (int) (drand48() * (SIGRTMAX - SIGRTMIN + 1));
     union sigval rt_sigval;
     rt_sigval.sival_int = getpid();
-    log("sending SIGRTMIN + 10", 1);
-    if (sigqueue(getppid(), signal_no, rt_sigval) != 0) {
-        perror("Error");
+    logger("sending ", getpid(), signal_no, 0);
+
+    if (parent == getppid()) {
+        if (sigqueue(getppid(), signal_no, rt_sigval) != 0) {
+            perror("Error");
+        }
     }
 
-    clock_gettime(CLOCK_MONOTONIC, &start);
     struct timespec end;
+    clock_gettime(CLOCK_MONOTONIC, &end);
 
     //exiting with time diff in seconds
-    printf("PID = %d ending\n", getpid());
+    logger("ending", getpid(), (int) (end.tv_sec - start.tv_sec), 0);
     exit((int) (end.tv_sec - start.tv_sec));
 }
 
 void handle_request(int signo, siginfo_t *info, void *ptr) {
-    sigset_t set;
-    sigset_t prev_set;
-    sigfillset(&set);
-    sigprocmask(SIG_SETMASK, &set, &prev_set);
-
-    printf("%d\n", requests_received);
     ++requests_received;
-    if (requests_received > exp_requests) {
-    printf("PID = %d received usr1 from %d\n", getpid(), info->si_value.sival_int);
-        union sigval sigval;
-        printf("PID = %d sending sigcont to %d\n", getpid(), info->si_value.sival_int);
-        sleep(5);
-        if (sigqueue(info->si_value.sival_int, SIGCONT, sigval) != 0) {
+    logger("requests received", getpid(), requests_received, 0);
+
+    if (requests_received > EXP_REQUESTS) {
+        logger("received USR1 from", getpid(), info->si_value.sival_int, 0);
+        logger("sending CONT to", getpid(), info->si_value.sival_int, 0);
+        if (kill(info->si_value.sival_int, SIGUSR2) != 0) {
             perror("Error");
         }
-        printf("PID = %d sent sigcont to %d\n", getpid(), info->si_value.sival_int);
+        logger("sent CONT to", getpid(), info->si_value.sival_int, 0);
     } else {
-        printf("PID = %d saving %d process request to continue\n", getpid(), info->si_value.sival_int);
-        proc_info.procs[proc_info.hist_len]->pid = info->si_value.sival_int;
-        proc_info.hist_len ++;
-        printf("PID = %d actual requests received %d\n", getpid(), requests_received);
-        printf("proc hist len %d\n", proc_info.hist_len);
+        logger("saving process request to continue", getpid(), info->si_value.sival_int, 0);
+        /*int index = proc_info.hist_len;
+        proc_info.procs[index]->pid = info->si_value.sival_int;*/
+        logger("actual requests received", getpid(), requests_received, 0);
+        logger("processes hist len", getpid(), proc_info.hist_len, 0);
     }
+    int index = proc_info.hist_len;
+    proc_info.procs[index]->pid = info->si_value.sival_int;
+    proc_info.procs[index]->signals[proc_info.procs[index]->sig_count] = signo;
 
-    if (requests_received == exp_requests) {
-        sleep(5);
+    ++proc_info.procs[index]->sig_count;
+    ++proc_info.hist_len;
+
+    if (requests_received == EXP_REQUESTS) {
         for (int i = 0; i < proc_info.hist_len; ++i) {
-            union sigval sigval;
-            printf("PID = %d sending sigcont to %d\n", getpid(), proc_info.procs[i]->pid);
-            if (sigqueue(proc_info.procs[i]->pid, SIGCONT, sigval) != 0) {
+            logger("sending CONT to", getpid(), proc_info.procs[i]->pid,0);
+            if (kill(proc_info.procs[i]->pid, SIGUSR2) != 0) {
                 perror("Error");
             }
-            printf("PID = %d sent sigcont to %d\n", getpid(), proc_info.procs[i]->pid);
+            logger("sent CONT to", getpid(), proc_info.procs[i]->pid, 0);
         }
     }
 
-    sigprocmask(SIG_SETMASK, &prev_set, NULL);
+    set_usr1();
 }
 
 void handle_child_exit(int signo, siginfo_t *info, void *ptr) {
-    sigset_t set;
-    sigset_t prev_set;
-    sigfillset(&set);
-    sigprocmask(SIG_SETMASK, &set, &prev_set);
-
-
-    printf("%d received rt sig from %d\n", getpid(), info->si_value.sival_int);
     --child_processes;
-    printf("%d subtracting to %d\n", getpid(), child_processes);
-    if (child_processes == 0) {
-        int tmp = 0;
-        for (int i = 0; i < proc_info.hist_len; ++i) {
-            int status;
-            int pid = proc_info.procs[i]->pid;
-            waitpid(pid, &status, 0);
-            printf("%d exited with status %d\n", pid, status);
+    for (int i = 0; i < proc_info.hist_len; ++i) {
+        volatile proc_hist *p_info = proc_info.procs[i];
+        if (p_info->pid == info->si_value.sival_int) {
+            logger("setting process signal info", p_info->pid, signo, 0);
+            p_info->signals[p_info->sig_count] = signo;
+            ++p_info->sig_count;
         }
-        exit(EXIT_SUCCESS);
     }
 
-    sigprocmask(SIG_SETMASK, &prev_set, NULL);
+    set_rt_signals();
+}
+
+void handle_int(int signo, siginfo_t *info, void *ptr) {
+    for (int i = 0; i < proc_info.hist_len; ++i) {
+        kill(proc_info.procs[i]->pid, SIGKILL);
+    }
+    raise(SIGKILL);
 }
 
 void set_signal_handlers() {
-    //This will set handler for SIGUSR1 signals treated as requests to continue work made by child processes
+    set_sigint();
+    set_usr1();
+    set_rt_signals();
+}
+
+void set_sigint() {
+    struct sigaction int_action;
+    int_action.sa_sigaction = handle_int;
+    sigaction(SIGINT, &int_action, NULL);
+}
+
+void set_usr1() {//This will set handler for SIGUSR1 signals treated as requests to continue child processes
     struct sigaction usr_action;
     usr_action.sa_sigaction = handle_request;
     usr_action.sa_flags |= SA_SIGINFO;
-    //usr_action.sa_flags |= SA_NODEFER;
-    sigaction(SIGRTMIN, &usr_action, NULL);
+    sigaction(SIGUSR1, &usr_action, NULL);
+}
 
+void set_rt_signals() {
     struct sigaction rt_action;
     rt_action.sa_sigaction = handle_child_exit;
     rt_action.sa_flags |= SA_SIGINFO;
-
-    //todo rt_set may be redundant
-    sigset_t rt_set;
-    sigemptyset(&rt_set);
-    int sig_no = SIGRTMIN + 1;
-    while (sig_no <= SIGRTMAX) {
-        sigaction(sig_no, &rt_action, NULL);
-        sigaddset(&rt_set, sig_no);
-        sig_no++;
+    for (int i = SIGRTMIN; i <= SIGRTMAX; ++i) {
+        sigaction(i, &rt_action, NULL);
     }
 }
 
-void log(char *msg, int slp_flag) {
-    printf("%d\t%s\t%d\n", getpid(), msg, getppid());
+void logger(char *msg, int parent_id, int pid, int slp_flag) {
+    char *msg_cpy = calloc(500, sizeof(*msg_cpy));
+    sprintf(msg_cpy, "%d\t%s\t%d\n", parent_id, msg, pid);
+
+    write(STDOUT_FILENO, msg_cpy, strlen(msg_cpy));
     if (slp_flag == 1) {
-        sleep(10);
+        sleep(5);
     }
+    free(msg_cpy);
 }

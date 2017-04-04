@@ -184,9 +184,9 @@ void handle_child_exit(int signo, siginfo_t *info, void *ptr) {
 
 void handle_int(int signo, siginfo_t *info, void *ptr) {
     for (int i = 0; i < proc_info.hist_len; ++i) {
-        kill(proc_info.procs[i]->pid, SIGKILL);
+        kill(proc_info.procs[i]->pid, SIGTERM);
     }
-    raise(SIGKILL);
+    raise(SIGTERM);
 }
 
 void set_signal_handlers() {

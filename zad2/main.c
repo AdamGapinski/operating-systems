@@ -10,8 +10,6 @@ void fork_processes(int processes) ;
 
 void set_signal_handlers() ;
 
-void logger(char *msg, int parent_id, int pid, int slp_flag) ;
-
 void process(int parent) ;
 
 void set_rt_signals();
@@ -69,7 +67,6 @@ void fork_processes(int processes) {
     int parent = getpid();
     for (int i = 0; i < processes; ++i) {
         if (fork() == 0) {
-            logger("child process", getpid(), 0, 0);
             process(parent);
         } else {
             proc_info.procs[i] = malloc(sizeof(*proc_info.procs[i]));
@@ -92,10 +89,7 @@ void fork_processes(int processes) {
                     printf("\t\t%s", strsignal(info->signals[j]));
                 }
                 printf("\n\n");
-
-                logger("exited with status", pid, WEXITSTATUS(status), 0);
             }
-            logger("child_processes", getpid(), child_processes, 0);
             exit(EXIT_SUCCESS);
         }
     }
@@ -110,7 +104,6 @@ void process(int parent) {
     srand48(time(NULL) ^ (getpid()<<16));
     int sleep_time = (int) (drand48() * 11);
     sleep((unsigned int) sleep_time);
-    logger("randomized time", getpid(), sleep_time, 0);
 
     //sending request
     union sigval usr_sigval;
@@ -118,7 +111,6 @@ void process(int parent) {
     struct timespec start;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
-    logger("sending USR1 request", getpid(), getppid(), 0);
     if (sigqueue(getppid(), SIGUSR1, usr_sigval) != 0) {
         perror("Error:");
     }
@@ -127,19 +119,16 @@ void process(int parent) {
     time.tv_sec = 11;
     time.tv_nsec = 0;
 
-    logger("waits", getpid(), getppid(), 0);
     //waiting for response
     if (sigtimedwait(&set, NULL, &time) == -1) {
         child_processes--;
         exit(100);
     }
-    logger("continued", getpid(), getppid(), 0);
 
 
     int signal_no = SIGRTMIN + (int) (drand48() * (SIGRTMAX - SIGRTMIN + 1));
     union sigval rt_sigval;
     rt_sigval.sival_int = getpid();
-    logger("sending ", getpid(), signal_no, 0);
 
     if (parent == getppid()) {
         if (sigqueue(getppid(), signal_no, rt_sigval) != 0) {
@@ -151,27 +140,16 @@ void process(int parent) {
     clock_gettime(CLOCK_MONOTONIC, &end);
 
     //exiting with time diff in seconds
-    logger("ending", getpid(), (int) (end.tv_sec - start.tv_sec), 0);
     exit((int) (end.tv_sec - start.tv_sec));
 }
 
 void handle_request(int signo, siginfo_t *info, void *ptr) {
     ++requests_received;
-    logger("requests received", getpid(), requests_received, 0);
 
     if (requests_received > EXP_REQUESTS) {
-        logger("received USR1 from", getpid(), info->si_value.sival_int, 0);
-        logger("sending CONT to", getpid(), info->si_value.sival_int, 0);
         if (kill(info->si_value.sival_int, SIGUSR2) != 0) {
             perror("Error");
         }
-        logger("sent CONT to", getpid(), info->si_value.sival_int, 0);
-    } else {
-        logger("saving process request to continue", getpid(), info->si_value.sival_int, 0);
-        /*int index = proc_info.hist_len;
-        proc_info.procs[index]->pid = info->si_value.sival_int;*/
-        logger("actual requests received", getpid(), requests_received, 0);
-        logger("processes hist len", getpid(), proc_info.hist_len, 0);
     }
     int index = proc_info.hist_len;
     proc_info.procs[index]->pid = info->si_value.sival_int;
@@ -182,11 +160,9 @@ void handle_request(int signo, siginfo_t *info, void *ptr) {
 
     if (requests_received == EXP_REQUESTS) {
         for (int i = 0; i < proc_info.hist_len; ++i) {
-            logger("sending CONT to", getpid(), proc_info.procs[i]->pid,0);
             if (kill(proc_info.procs[i]->pid, SIGUSR2) != 0) {
                 perror("Error");
             }
-            logger("sent CONT to", getpid(), proc_info.procs[i]->pid, 0);
         }
     }
 
@@ -198,7 +174,6 @@ void handle_child_exit(int signo, siginfo_t *info, void *ptr) {
     for (int i = 0; i < proc_info.hist_len; ++i) {
         volatile proc_hist *p_info = proc_info.procs[i];
         if (p_info->pid == info->si_value.sival_int) {
-            logger("setting process signal info", p_info->pid, signo, 0);
             p_info->signals[p_info->sig_count] = signo;
             ++p_info->sig_count;
         }
@@ -240,15 +215,4 @@ void set_rt_signals() {
     for (int i = SIGRTMIN; i <= SIGRTMAX; ++i) {
         sigaction(i, &rt_action, NULL);
     }
-}
-
-void logger(char *msg, int parent_id, int pid, int slp_flag) {
-    char *msg_cpy = calloc(500, sizeof(*msg_cpy));
-    sprintf(msg_cpy, "%d\t%s\t%d\n", parent_id, msg, pid);
-
-    write(STDOUT_FILENO, msg_cpy, strlen(msg_cpy));
-    if (slp_flag == 1) {
-        sleep(5);
-    }
-    free(msg_cpy);
 }

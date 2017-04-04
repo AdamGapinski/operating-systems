@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <memory.h>
+#include <wait.h>
 
 void send_signals(int signals, int type, int process_id) ;
 
@@ -15,6 +16,10 @@ void print(char *msg, int value) {
     sprintf(msg_cpy, "%s\t%d\n", msg, value);
     write(STDOUT_FILENO, msg_cpy, strlen(msg_cpy));
     free(msg_cpy);
+}
+
+void handle_int (int signo, siginfo_t *info, void *ptr) {
+    raise(SIGTERM);
 }
 
 int main(int argc, char *argv[]) {
@@ -33,10 +38,15 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
+    struct sigaction int_action;
+    int_action.sa_sigaction = handle_int;
+    sigfillset(&int_action.sa_mask);
+    sigaction(SIGINT, &int_action, NULL);
+
     int process_id;
     if ((process_id = fork()) == 0) {
         set_handlers_process();
-        while(1) sleep(100);
+        while(1) sleep(10);
     } else {
         set_handlers();
         send_signals(signals, type, process_id);
@@ -72,6 +82,7 @@ void set_handlers() {
 
     struct sigaction rt_min;
     rt_min.sa_sigaction = handle_rtmin;
+    sigfillset(&rt_min.sa_mask);
     sigaction(SIGRTMIN, &rt_min, NULL);
     sigaction(SIGRTMIN + 1, &rt_min, NULL);
 }
@@ -108,11 +119,13 @@ void set_handlers_process() {
 
     struct sigaction rt_min;
     rt_min.sa_sigaction = handle_rtmin_process;
+    sigfillset(&rt_min.sa_mask);
     sigaction(SIGRTMIN, &rt_min, NULL);
     sigaction(SIGRTMIN + 1, &rt_min, NULL);
 }
 
 void send_signals(int signals, int type, int process_id) {
+    print("process", process_id);
     sleep(1);
     if (type == 1) {
         for (int i = 0; i < signals; ++i) {
@@ -137,5 +150,5 @@ void send_signals(int signals, int type, int process_id) {
         return;
     }
     //waiting for child process response
-    while(1) sleep(100);
+    while(1) sleep(10);
 }

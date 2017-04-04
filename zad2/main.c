@@ -122,7 +122,7 @@ void process(int parent) {
     //waiting for response
     if (sigtimedwait(&set, NULL, &time) == -1) {
         child_processes--;
-        exit(100);
+        _exit(100);
     }
 
 
@@ -198,12 +198,14 @@ void set_signal_handlers() {
 void set_sigint() {
     struct sigaction int_action;
     int_action.sa_sigaction = handle_int;
+    sigfillset(&int_action.sa_mask);
     sigaction(SIGINT, &int_action, NULL);
 }
 
 void set_usr1() {//This will set handler for SIGUSR1 signals treated as requests to continue child processes
     struct sigaction usr_action;
     usr_action.sa_sigaction = handle_request;
+    sigfillset(&usr_action.sa_mask);
     usr_action.sa_flags |= SA_SIGINFO;
     sigaction(SIGUSR1, &usr_action, NULL);
 }
@@ -211,6 +213,7 @@ void set_usr1() {//This will set handler for SIGUSR1 signals treated as requests
 void set_rt_signals() {
     struct sigaction rt_action;
     rt_action.sa_sigaction = handle_child_exit;
+    sigfillset(&rt_action.sa_mask);
     rt_action.sa_flags |= SA_SIGINFO;
     for (int i = SIGRTMIN; i <= SIGRTMAX; ++i) {
         sigaction(i, &rt_action, NULL);

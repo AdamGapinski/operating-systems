@@ -1,4 +1,4 @@
-	Zmodyfikowany program z punktu 2. znajduje sie w katalogu zad2 pod nazwa main_core.c. Jest to kopia programu main.c z niewielka modyfikacja, 
+	Zmodyfikowany program z punktu 2. znajduje sie pod nazwa main_core.c. Jest to kopia programu main.c z niewielka modyfikacja, 
 ktora powoduje blad krytyczny i zrzut pamieci. 
 
 	Modyfikacja ma miejsce w 111. linijce, w metodzie measure_linkbook_creation, ktora jest wywolywana w funkcji main, jako druga z kolei.
@@ -9,7 +9,7 @@ Wywolanie tej funkcji (117 linijka pliku main_core.c) jako jeden ze swych argume
 Analiza pliku core:
 	Do analizy pliku core niezbedne jest narzedzie GDB. Do skutecznego korzystania z tego narzedzia, niezbedne jest skompilowanie programu z opcja
 -g, ktora dostarcza dodatkowych informacji dla debuggera GDB. Aby moc wygenerowac plik core, nalezy zmodyfikowac jego limit wielkosci za pomoca
-narzedzia ulimit (np. wywolaniem ulimit -u unlimited)
+narzedzia ulimit (np. wywolaniem ulimit -c unlimited)
 	Przeanalizowanie pliku core jest mozliwe za pomoca komendy gdb -c core ./main, gdzie main jest nazwa skompilowanego programu, ktory
 wygenerowal zrzut pamieci. Opcja -c wskazuje na plik zrzutu pamieci do przeanalizowania. 
 

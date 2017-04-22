@@ -4,7 +4,7 @@
 #include <sys/msg.h>
 #include <unistd.h>
 #include <stdlib.h>
-#include "Common.h"
+#include "common.h"
 
 int create_queue() ;
 

@@ -5,7 +5,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <wait.h>
-#include "Common.h"
+#include "common.h"
 
 void print_options() ;
 

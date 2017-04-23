@@ -37,7 +37,10 @@ long receive_identity() ;
 
 void wait_for_key() ;
 
+int get_server_queue_id();
+
 int queue_id = -1;
+int server_qid = -1;
 long client_identity = 0;
 
 int main() {
@@ -48,7 +51,6 @@ int main() {
     register_with_key(key);
     client_identity = receive_identity();
 
-    printf("%d: Client is entering interactive mode to send requests\n", getpid());
     while (1) {
         print_options();
         process_option(read_option());
@@ -70,45 +72,58 @@ void clean_at_exit() {
 }
 
 int create_queue() {
-    printf("%d: Client is creating message queue\n", getpid());
-
     srand((unsigned int) (time(NULL) ^ (getpid() << 16)));
     int key;
     do {
-        int rand_i = rand() % KEY_SEEDS_SIZE;
-        printf("rand %d\n", rand_i);
-
-        if ((key = ftok(getenv("HOME"), KEY_SEEDS[rand_i])) == -1) {
+        /*
+         * Key seed is randomized from the set of key seeds defined in common.h header
+         * */
+        if ((key = ftok(getenv("HOME"), KEY_SEEDS[rand() % KEY_SEEDS_SIZE])) == -1) {
             perror("Error while generating queue key");
         }
 
         errno = 0;
+        /*
+         * Checking if there exists another message queue with the same key
+         * and if it exists (errno set to EEXITS, then try to generate key once more
+         * */
         if ((queue_id = msgget(key, IPC_CREAT | IPC_EXCL | 0666)) == -1 && errno != EEXIST) {
             perror("Error while creating client queue");
             exit(EXIT_FAILURE);
         }
     } while (errno == EEXIST);
     errno = 0;
-
-    printf("%d: Client created message queue with key %d and id %d\n", getpid(), key, queue_id);
     return key;
 }
 
 void register_with_key(int key) {
-    printf("%d: Client is registering to server with queue id %d\n", getpid(), key);
     char *key_buf = calloc(MSG_MAX_SIZE, sizeof(*key_buf));
     sprintf(key_buf, "%d", key);
+    /*
+     * key value generated from ftok is sent to server
+     * */
     send_to_server(key_buf, REGISTER);
     free(key_buf);
 }
 
 void send_to_server(char *text, long message_type) {
-    printf("%d: Client is sending %s to server\n", getpid(), text);
     message *request = malloc(sizeof(*request));
     request->client = getpid();
     request->message_type = message_type;
     strncpy(request->message, text, MSG_MAX_SIZE);
 
+    if (server_qid == -1) {
+        server_qid = get_server_queue_id();
+    }
+
+    if ((msgsnd(server_qid, request, sizeof(*request) - sizeof(long), 0))) {
+        perror("Error while sending register request");
+        exit(EXIT_FAILURE);
+    }
+    free(request);
+}
+
+int get_server_queue_id() {
     int key;
     if ((key = ftok(getenv("HOME"), PROJ_ID)) == -1) {
         perror("Error while getting server queue key");
@@ -120,25 +135,16 @@ void send_to_server(char *text, long message_type) {
         perror("Error while getting server queue id");
         exit(EXIT_FAILURE);
     }
-
-    printf("%d: Client is sending message: \"%s\" to queue with key: %d and id: %d\n", getpid(), request->message, key, server_qid);
-    if ((msgsnd(server_qid, request, sizeof(*request) - sizeof(long), 0))) {
-        perror("Error while sending register request");
-        exit(EXIT_FAILURE);
-    }
-    free(request);
+    return server_qid;
 }
 
 long receive_identity() {
-    printf("%d: Client is waiting for ID from server\n", getpid());
     message *received = wait_for_message();
     long message_type;
     if (received != NULL) {
         message_type = received->message_type;
-        printf("%d: Client registered with identity %ld\n", getpid(), message_type);
         free(received);
     } else {
-        fprintf(stderr, "Error while registering client");
         exit(EXIT_FAILURE);
     }
 
@@ -148,8 +154,6 @@ long receive_identity() {
 message *wait_for_message() {
     message *msg = calloc(1, sizeof(*msg));
 
-    printf("%d: Client is waiting for message\n", getpid());
-
     const int SECONDS_TO_WAIT = 5;
     const int SECONDS_TO_MICROSECONDS = (const int) 1e6;
     const int U_INTERVAL = (const int) 1e3;   //time in microseconds between calls to msgrcv, 10000 is 100 ms
@@ -157,16 +161,13 @@ message *wait_for_message() {
         if (msgrcv(queue_id, msg, sizeof(*msg) - sizeof(long), client_identity, MSG_NOERROR | IPC_NOWAIT) == -1) {
             usleep((__useconds_t) U_INTERVAL);
         } else {
-            printf("%d: Client received message \"%s\" type %ld PID %d\n", getpid(), msg->message, msg->message_type, msg->client);
             return msg;
         }
     }
-
     if ((msgrcv(queue_id, msg, sizeof(msg) - sizeof(long), client_identity, MSG_NOERROR | IPC_NOWAIT)) == -1) {
-        perror("Error while receiving message");
+        perror("Timeout error");
         return NULL;
     }
-
     return msg;
 }
 
@@ -207,9 +208,9 @@ void process_option(int option) {
 }
 
 void echo_option() {
-    printf("%d: Client is requesting echo\n", getpid());
-    send_to_server("Test message", ECHO);
-    printf("%d: Client is waiting for response\n", getpid());
+    char *message_to_send = "Test message";
+    printf("Wsylana wiadomosc: %s\n", message_to_send);
+    send_to_server(message_to_send, ECHO);
     message *response = wait_for_message();
     if (response != NULL) {
         printf("Otrzymana opdpowiedz: %s\n", response->message);
@@ -218,9 +219,9 @@ void echo_option() {
 }
 
 void caps_option() {
-    printf("%d: Client is requesting caps\n", getpid());
-    send_to_server("Test message", CAPS);
-    printf("%d: Client is waiting for response\n", getpid());
+    char *message_to_send = "Test message";
+    printf("Wsylana wiadomosc: %s\n", message_to_send);
+    send_to_server(message_to_send, CAPS);
     message *response = wait_for_message();
     if (response != NULL) {
         printf("Otrzymana opdpowiedz: %s\n", response->message);
@@ -229,18 +230,14 @@ void caps_option() {
 }
 
 void time_option() {
-    printf("%d: Client is requesting time\n", getpid());
     send_to_server("", TIME);
-    printf("%d: Client is waiting for response\n", getpid());
     message *response = wait_for_message();
     if (response != NULL) {
-        printf("Otrzymana opdpowiedz: %s\n", response->message);
+        printf("Otrzymana opdpowiedz: %s", response->message);
     }
     free(response);
 }
 
 void exit_option() {
-    printf("%d: Client is requesting exit\n", getpid());
     send_to_server("", EXIT);
-    printf("%d: Exit requested\n", getpid());
 }

@@ -10,10 +10,10 @@ Server: $(ODIR)/Server.o
 Client: $(ODIR)/Client.o
 	$(CC) $(CFLAGS) $^ -o $@
 
-$(ODIR)/Server.o: Server.c
+$(ODIR)/Server.o: Server.c common.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(ODIR)/Client.o: Client.c
+$(ODIR)/Client.o: Client.c common.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:

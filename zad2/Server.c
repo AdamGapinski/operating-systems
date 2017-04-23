@@ -97,8 +97,10 @@ int create_queue() {
 void handle_request() {
     printf("%d: Server is waiting for request\n", getpid());
     message *msg = wait_for_message();
-    process_message(msg);
-    free(msg);
+    if (msg != NULL) {
+        process_message(msg);
+        free(msg);
+    }
     printf("%d: Server ended handling request\n", getpid());
 }
 

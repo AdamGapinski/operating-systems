@@ -36,9 +36,11 @@ void handle_exit(message *pMessage) ;
 
 void handle_pending_requests();
 
-message *receive_message() ;
+message *receive_message(mqd_t non_block_queue_desc) ;
 
 void clean_at_exit() ;
+
+void handle_client_exit(message *pMessage) ;
 
 typedef struct client {
     pid_t process_id;
@@ -67,6 +69,9 @@ int main() {
 
 void clean_at_exit() {
     if (queue_descriptor != -1) {
+        for (int i = 1 ; i < client_index; ++i) {
+            mq_close(clients[i]->queue_descriptor);
+        }
         mq_close(queue_descriptor);
         mq_unlink(SERVER_QUEUE_NAME);
     }
@@ -136,6 +141,11 @@ void process_message(message *msg) {
             handle_exit(msg);
             printf("%d: Server processed %s request\n", getpid(), "exit");
             break;
+        case CLIENT_EXIT:
+            printf("%d: Server is processing %s request\n", getpid(), "client exit");
+            handle_client_exit(msg);
+            printf("%d: Server processed %s request\n", getpid(), "client exit");
+            break;
         default:
             printf("%d: Unrecognized request\n", getpid());
     }
@@ -144,7 +154,7 @@ void process_message(message *msg) {
 void handle_register(message *msg) {
     client *to_register = malloc(sizeof(*to_register));
     to_register->process_id = msg->client;
-    to_register->id = client_index;
+    to_register->id = (char) client_index;
 
     /*opening client queue and getting it's identifier*/
     char *client_queue_name = calloc(NAME_MAX, sizeof(*client_queue_name));
@@ -172,20 +182,23 @@ message *create_message(pid_t client_pid, char *text) {
     return result;
 }
 
-void send_message(message *to_send) {
+int find_client_id(int pid) {
     int id;
-    int found = 0;
     for (id = 1 ; id < client_index; ++id) {
-        if (clients[id]->process_id == to_send->client) {
-            found = 1;
-            break;
+        if (clients[id]->process_id == pid) {
+            return id;
         }
     }
+    return -1;
+}
 
-    if (found == 0) {
+void send_message(message *to_send) {
+    int id = find_client_id(to_send->client);
+
+    if (id == -1) {
         fprintf(stderr, "Error while sending message to client: Client with PID %d is not registered\n", to_send->client);
     } else {
-        to_send->message_type = id;
+        to_send->message_type = (char) id;
         printf("%d: Server is sending message \"%s\" to PID %d with queue descriptor: %d\n", getpid(), to_send->message, to_send->client, clients[id]->queue_descriptor);
         if ((mq_send(clients[id]->queue_descriptor, (char *) to_send, sizeof(*to_send), 0)) == -1) {
             perror("Error while sending message to client");
@@ -219,9 +232,18 @@ void handle_time(message *pMessage) {
 }
 
 void handle_exit(message *pMessage) {
-    printf("%d: Server received time request from PID %d\n", getpid(), pMessage->client);
+    printf("%d: Server received exit request from PID %d\n", getpid(), pMessage->client);
     handle_pending_requests();
     exit(EXIT_SUCCESS);
+}
+
+void handle_client_exit(message *pMessage) {
+    printf("%d: Server received client exit request from PID %d\n", getpid(), pMessage->client);
+    int id = find_client_id(pMessage->client);
+
+    if (id != -1) {
+        mq_close(clients[id]->queue_descriptor);
+    }
 }
 
 void handle_pending_requests() {
@@ -242,6 +264,8 @@ message *receive_message(mqd_t non_block_queue_desc) {
     if ((mq_receive(non_block_queue_desc, (char *) msg, sizeof(*msg), 0)) == -1) {
         if (errno != EAGAIN) {
             fprintf(stderr, "Error while receiving message %s\n", strerror(errno));
+        } else {
+            printf("%d: No messages\n", getpid());
         }
         return NULL;
     } else {

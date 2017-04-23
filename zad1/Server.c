@@ -50,10 +50,8 @@ int queue_id = 0;
 
 int main() {
     printf("%d: Server started\n", getpid());
-
     queue_id = create_queue();
     printf("%d: Server is ready to handle requests\n", getpid());
-
     while(1) {
         handle_request();
     }
@@ -124,6 +122,10 @@ void process_message(message *msg) {
 }
 
 void handle_register(message *msg) {
+    if (client_index > MAX_CLIENTS) {
+        fprintf(stderr, "Error: Server could not register client with PID %d, because no free slots are available\n", msg->client);
+        return;
+    }
     client *to_register = malloc(sizeof(*to_register));
     to_register->process_id = msg->client;
     to_register->id = client_index;

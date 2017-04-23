@@ -5,24 +5,20 @@
 #ifndef IPCCOMMUNICATION_COMMON_H
 #define IPCCOMMUNICATION_COMMON_H
 
-const char PROJ_ID = 'm';
+const char *SERVER_QUEUE_NAME = "/server_queue_name";
 
+#define MAX_ON_QUEUE 10
+#define MAX_MSG_SIZE sizeof(message)
+#define MAX_MSG_TEXT_SIZE 8000
 #define MAX_CLIENTS 20
-#define KEY_SEEDS_SIZE 25
-
-const char KEY_SEEDS[KEY_SEEDS_SIZE] = {'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p',
-                                        'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'm',
-                                        'n', 'Q', 'W', 'E', 'R'};
-
-#define MSG_MAX_SIZE 512
 
 typedef enum {
     UNDEFINED, REGISTER, ECHO, CAPS, TIME, EXIT
 } Request;
 
 typedef struct message {
-    long message_type;
-    char message[MSG_MAX_SIZE];
+    char message_type;
+    char message[MAX_MSG_TEXT_SIZE];
     pid_t client;
 } message;
 

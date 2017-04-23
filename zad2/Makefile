@@ -6,10 +6,10 @@ ODIR=./obj
 all: Server Client
 
 Server: $(ODIR)/Server.o
-	$(CC) $(CFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) $^ $(LIBS) -o $@
 
 Client: $(ODIR)/Client.o
-	$(CC) $(CFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) $^ $(LIBS) -o $@
 
 $(ODIR)/Server.o: Server.c
 	$(CC) $(CFLAGS) -c $< $(LIBS) -o $@

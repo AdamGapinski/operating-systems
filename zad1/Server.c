@@ -7,6 +7,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <time.h>
+#include <errno.h>
 #include "common.h"
 
 int create_queue() ;
@@ -17,11 +18,9 @@ void handle_caps(message *pMessage);
 
 void handle_time(message *pMessage);
 
-void handle_exit();
-
 void handle_echo(message *pMessage);
 
-message *receive_message() ;
+message *wait_for_message() ;
 
 void process_message(message *msg) ;
 
@@ -30,6 +29,12 @@ void send_message(message *to_send) ;
 void handle_register(message *msg) ;
 
 message *create_message(pid_t client_pid, char *text) ;
+
+void handle_exit(message *pMessage) ;
+
+void handle_pending_requests();
+
+message *receive_message() ;
 
 typedef struct client {
     pid_t process_id;
@@ -68,25 +73,21 @@ int create_queue() {
 
 void handle_request() {
     printf("%d: Server is waiting for request\n", getpid());
-    message *msg = receive_message();
+    message *msg = wait_for_message();
     process_message(msg);
     free(msg);
     printf("%d: Server ended handling request\n", getpid());
 }
 
-message *receive_message() {
+message *wait_for_message() {
     message *msg = calloc(1, sizeof(*msg));
 
-    /*
-     * todo
-     * If everything will be working fine, this could be implemented asynchronously:
-     * We wait for different message types in separate processes and process it immediately
-     * */
     printf("%d: Server is waiting for message\n", getpid());
     if ((msgrcv(queue_id, msg, sizeof(*msg) - sizeof(long), 0, MSG_NOERROR)) == -1) {
         perror("Error while receiving message");
-    };
-    printf("%d: Server received message \"%s\" with type %ld and PID %d\n", getpid(), msg->message, msg->message_type, msg->client);
+    } else {
+        printf("%d: Server received message \"%s\" with type %ld and PID %d\n", getpid(), msg->message, msg->message_type, msg->client);
+    }
     return msg;
 }
 
@@ -114,7 +115,7 @@ void process_message(message *msg) {
             break;
         case EXIT:
             printf("%d: Server is processing %s request\n", getpid(), "exit");
-            handle_exit();
+            handle_exit(msg);
             printf("%d: Server processed %s request\n", getpid(), "exit");
             break;
         default:
@@ -123,7 +124,6 @@ void process_message(message *msg) {
 }
 
 void handle_register(message *msg) {
-    //todo deallocate client
     client *to_register = malloc(sizeof(*to_register));
     to_register->process_id = msg->client;
     to_register->id = client_index;
@@ -199,6 +199,34 @@ void handle_time(message *pMessage) {
     free(response);
 }
 
-void handle_exit() {
+void handle_exit(message *pMessage) {
+    printf("%d: Server received time request from PID %d\n", getpid(), pMessage->client);
+    handle_pending_requests();
+    msgctl(queue_id, IPC_RMID, NULL);
+    exit(EXIT_SUCCESS);
+}
 
+void handle_pending_requests() {
+    message *msg;
+    printf("%d: Server going to sleep to accumulate pending requests\n", getpid());
+    printf("%d: Server woken up\n", getpid());
+
+    while ((msg = receive_message()) != NULL) {
+        process_message(msg);
+        free(msg);
+    }
+}
+
+message *receive_message() {
+    message *msg = calloc(1, sizeof(*msg));
+
+    printf("%d: Server is receiving message\n", getpid());
+    if ((msgrcv(queue_id, msg, sizeof(*msg) - sizeof(long), 0, MSG_NOERROR | IPC_NOWAIT)) == -1) {
+        if (errno == ENOMSG) {
+            return NULL;
+        }
+        perror("Error while receiving message");
+    };
+    printf("%d: Server received message \"%s\" with type %ld and PID %d\n", getpid(), msg->message, msg->message_type, msg->client);
+    return msg;
 }

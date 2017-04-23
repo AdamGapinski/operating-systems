@@ -156,7 +156,7 @@ message *create_message(pid_t client_pid, char *text) {
 void send_message(message *to_send) {
     int id;
     int found = 0;
-    for (id = 1 ; id < MAX_CLIENTS; ++id) {
+    for (id = 1 ; id < client_index; ++id) {
         if (clients[id]->process_id == to_send->client) {
             found = 1;
             break;
@@ -222,10 +222,10 @@ message *receive_message() {
 
     printf("%d: Server is receiving message\n", getpid());
     if ((msgrcv(queue_id, msg, sizeof(*msg) - sizeof(long), 0, MSG_NOERROR | IPC_NOWAIT)) == -1) {
-        if (errno == ENOMSG) {
-            return NULL;
+        if (errno != ENOMSG) {
+            perror("Error while receiving message");
         }
-        perror("Error while receiving message");
+        return NULL;
     };
     printf("%d: Server received message \"%s\" with type %ld and PID %d\n", getpid(), msg->message, msg->message_type, msg->client);
     return msg;

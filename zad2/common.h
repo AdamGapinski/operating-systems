@@ -13,7 +13,7 @@ const char *SERVER_QUEUE_NAME = "/server_queue_name";
 #define MAX_CLIENTS 20
 
 typedef enum {
-    UNDEFINED, REGISTER, ECHO, CAPS, TIME, EXIT
+    UNDEFINED, REGISTER, ECHO, CAPS, TIME, EXIT, CLIENT_EXIT
 } Request;
 
 typedef struct message {

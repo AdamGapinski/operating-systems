@@ -47,8 +47,7 @@ int main() {
     queue_name = create_queue();
     printf("%d: Client is registering to server with queue name %s\n", getpid(), queue_name);
     send_to_server(queue_name, REGISTER);
-    free(queue_name);
-    long client_identity = receive_identity();
+    receive_identity();
 
     printf("%d: Client is entering interactive mode to send requests\n", getpid());
     while (1) {
@@ -67,6 +66,7 @@ void wait_for_key() {
 
 void clean_at_exit() {
     if (queue_descriptor != -1) {
+        send_to_server("", CLIENT_EXIT);
         mq_close(queue_descriptor);
         mq_close(server_queue);
         mq_unlink(queue_name);
@@ -146,7 +146,7 @@ message *wait_for_message() {
     message *msg = calloc(1, sizeof(*msg));
     printf("%d: Client is waiting for message\n", getpid());
 
-    const int SECONDS_TO_WAIT = 10;
+    const int SECONDS_TO_WAIT = 5;
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
     timeout.tv_sec += SECONDS_TO_WAIT;

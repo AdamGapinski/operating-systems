@@ -8,7 +8,6 @@
 #include <ctype.h>
 #include <time.h>
 #include <errno.h>
-#include <sys/time.h>
 #include <limits.h>
 #include "common.h"
 
@@ -41,6 +40,8 @@ message *receive_message(mqd_t non_block_queue_desc) ;
 void clean_at_exit() ;
 
 void handle_client_exit(message *pMessage) ;
+
+int find_free_slot();
 
 typedef struct client {
     pid_t process_id;
@@ -119,7 +120,7 @@ void process_message(message *msg) {
         case REGISTER:
             printf("%d: Server is registering client\n", getpid());
             handle_register(msg);
-            printf("%d: Server registered client\n", getpid());
+            printf("%d: Server processed registering request\n", getpid());
             break;
         case ECHO:
             printf("%d: Server is processing %s request\n", getpid(), "echo");
@@ -154,7 +155,6 @@ void process_message(message *msg) {
 void handle_register(message *msg) {
     client *to_register = malloc(sizeof(*to_register));
     to_register->process_id = msg->client;
-    to_register->id = (char) client_index;
 
     /*opening client queue and getting it's identifier*/
     char *client_queue_name = calloc(NAME_MAX, sizeof(*client_queue_name));
@@ -165,14 +165,38 @@ void handle_register(message *msg) {
     };
     free(client_queue_name);
 
-    clients[client_index] = to_register;
-    printf("%d: Client registered at %d id\n", getpid(), client_index);
-    ++client_index;
+    int index;
+    if ((index = find_free_slot()) != -1) {
+        clients[index] = to_register;
+        to_register->id = (char) index;
+        printf("%d: Client registered at %d id\n", getpid(), index);
+        printf("%d: Server is sending back ID %d to client PID: %d\n", getpid(), to_register->id, to_register->process_id);
+        message *response = create_message(to_register->process_id, "");
+        send_message(response);
+        free(response);
+    } else {
+        printf("%d: Server could not register client, because no free slots available\n", getpid());
+    }
+}
 
-    printf("%d: Server is sending back ID %d to client PID: %d\n", getpid(), to_register->id, to_register->process_id);
-    message *response = create_message(to_register->process_id, "");
-    send_message(response);
-    free(response);
+int find_free_slot() {
+    int id;
+    for (id = 1 ; id < client_index; ++id) {
+        if (clients[id]->process_id == -1) {
+            free(clients[id]);
+            return id;
+        }
+    }
+
+    /*
+     * clients array is indexed from 1, to skip 0 index = id = message type
+     * */
+    if (client_index <= MAX_CLIENTS) {
+        int tmp = client_index;
+        ++client_index;
+        return tmp;
+    }
+    return -1;
 }
 
 message *create_message(pid_t client_pid, char *text) {
@@ -243,6 +267,14 @@ void handle_client_exit(message *pMessage) {
 
     if (id != -1) {
         mq_close(clients[id]->queue_descriptor);
+        clients[id]->process_id = -1;
+
+        /*
+         * If this was the last client in clients array, we have to subtract client_index by 1, because client
+         * */
+        if (client_index - 1 == id) {
+            --client_index;
+        }
     }
 }
 

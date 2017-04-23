@@ -135,7 +135,7 @@ char receive_identity() {
         printf("%d: Client registered with identity %d\n", getpid(), message_type);
         free(received);
     } else {
-        fprintf(stderr, "Error while registering client");
+        fprintf(stderr, "Error while registering client\n");
         exit(EXIT_FAILURE);
     }
 

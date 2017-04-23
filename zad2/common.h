@@ -9,8 +9,8 @@ const char *SERVER_QUEUE_NAME = "/server_queue_name";
 
 #define MAX_ON_QUEUE 10
 #define MAX_MSG_SIZE sizeof(message)
-#define MAX_MSG_TEXT_SIZE 8000
-#define MAX_CLIENTS 20
+#define MAX_MSG_TEXT_SIZE 1024
+#define MAX_CLIENTS 50
 
 typedef enum {
     UNDEFINED, REGISTER, ECHO, CAPS, TIME, EXIT, CLIENT_EXIT

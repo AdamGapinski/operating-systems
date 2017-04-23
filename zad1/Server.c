@@ -5,9 +5,9 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
+#include <time.h>
 #include "common.h"
-
-#define MAX_CLIENTS 20
 
 int create_queue() ;
 
@@ -25,9 +25,11 @@ message *receive_message() ;
 
 void process_message(message *msg) ;
 
-void send_to_client(pid_t pid, long id, char *message) ;
+void send_message(message *to_send) ;
 
 void handle_register(message *msg) ;
+
+message *create_message(pid_t client_pid, char *text) ;
 
 typedef struct client {
     pid_t process_id;
@@ -35,10 +37,10 @@ typedef struct client {
     int queue_id;
 } client;
 
-client *clients[MAX_CLIENTS];
-int client_index = 0;
+client *clients[MAX_CLIENTS + 1];
+//skipping 0 index to avoid sending message with 0 message type
+int client_index = 1;
 
-//todo  make non static
 int queue_id = 0;
 
 int main() {
@@ -68,6 +70,7 @@ void handle_request() {
     printf("%d: Server is waiting for request\n", getpid());
     message *msg = receive_message();
     process_message(msg);
+    free(msg);
     printf("%d: Server ended handling request\n", getpid());
 }
 
@@ -80,10 +83,10 @@ message *receive_message() {
      * We wait for different message types in separate processes and process it immediately
      * */
     printf("%d: Server is waiting for message\n", getpid());
-    if ((msgrcv(queue_id, msg, sizeof(msg) - sizeof(long), 0, MSG_NOERROR)) == -1) {
+    if ((msgrcv(queue_id, msg, sizeof(*msg) - sizeof(long), 0, MSG_NOERROR)) == -1) {
         perror("Error while receiving message");
     };
-    printf("%d: Server received message\n", getpid());
+    printf("%d: Server received message \"%s\" with type %ld and PID %d\n", getpid(), msg->message, msg->message_type, msg->client);
     return msg;
 }
 
@@ -117,7 +120,6 @@ void process_message(message *msg) {
         default:
             printf("%d: Unrecognized request\n", getpid());
     }
-    free(msg);
 }
 
 void handle_register(message *msg) {
@@ -125,39 +127,76 @@ void handle_register(message *msg) {
     client *to_register = malloc(sizeof(*to_register));
     to_register->process_id = msg->client;
     to_register->id = client_index;
-    sscanf(msg->message, "%d", &to_register->queue_id);
+
+    /*opening client queue and getting it's identifier*/
+    int key;
+    sscanf(msg->message, "%d", &key);
+    printf("%d: opening client queue with key %d\n", getpid(), key);
+    if ((to_register->queue_id = msgget(key, 0666)) == -1) {
+        perror("Error while opening client queue");
+    };
+
     clients[client_index] = to_register;
     printf("%d: Client registered at %d id\n", getpid(), client_index);
-
     ++client_index;
+
     printf("%d: Server is sending back ID %ld to client PID: %d\n", getpid(), to_register->id, to_register->process_id);
-    send_to_client(to_register->process_id, to_register->id, "");
+    message *response = create_message(to_register->process_id, "");
+    send_message(response);
+    free(response);
 }
 
-void send_to_client(pid_t pid, long id, char *text) {
-    //todo deallocate response
-    message *response = malloc(sizeof(*response));
-    response->client = pid;
-    response->message_type = id;
-    strncpy(response->message, text, MSG_MAX_SIZE);
+message *create_message(pid_t client_pid, char *text) {
+    message *result = malloc(sizeof(*result));
+    strncpy(result->message, text, MSG_MAX_SIZE);
+    result->client = client_pid;
+    return result;
+}
 
-    printf("%d: Server is sending message \"%s\" to %d\n", getpid(), text, pid);
-    if ((msgsnd(clients[id]->queue_id, response, sizeof(*response) - sizeof(long), 0)) == -1) {
-        perror("Error while responding to register");
+void send_message(message *to_send) {
+    int id;
+    int found = 0;
+    for (id = 1 ; id < MAX_CLIENTS; ++id) {
+        if (clients[id]->process_id == to_send->client) {
+            found = 1;
+            break;
+        }
     }
-    printf("%d: Message sent\n", getpid());
+
+    if (found == 0) {
+        fprintf(stderr, "Error while sending message to client: Client with PID %d is not registered\n", to_send->client);
+    } else {
+        to_send->message_type = id;
+        printf("%d: Server is sending message \"%s\" to PID %d with queue ID: %d\n", getpid(), to_send->message, to_send->client, clients[id]->queue_id);
+        if ((msgsnd(clients[id]->queue_id, to_send, sizeof(*to_send) - sizeof(long), MSG_NOERROR)) == -1) {
+            perror("Error while sending message to client");
+        } else {
+            printf("%d: Message sent\n", getpid());
+        }
+    }
 }
 
 void handle_echo(message *pMessage) {
-
+    printf("%d: before sending\n", getpid());
+    send_message(pMessage);
 }
 
 void handle_caps(message *pMessage) {
+    for (int i = 0; pMessage->message[i] != '\0'; ++i) {
+        printf("%d: uppercasing '%c'\n", getpid(), pMessage->message[i]);
+        pMessage->message[i] = (char) toupper(pMessage->message[i]);
+        printf("%d: uppercased '%c'\n", getpid(), pMessage->message[i]);
+    }
 
+    printf("%d: before sending\n", getpid());
+    send_message(pMessage);
 }
 
 void handle_time(message *pMessage) {
-
+    time_t now = time(NULL);
+    message *response = create_message(pMessage->client, ctime(&now));
+    send_message(response);
+    free(response);
 }
 
 void handle_exit() {

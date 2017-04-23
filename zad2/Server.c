@@ -1,13 +1,15 @@
 #include <stdio.h>
-#include <sys/types.h>
-#include <sys/ipc.h>
-#include <sys/msg.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <mqueue.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 #include <time.h>
 #include <errno.h>
+#include <sys/time.h>
+#include <limits.h>
 #include "common.h"
 
 int create_queue() ;
@@ -36,22 +38,26 @@ void handle_pending_requests();
 
 message *receive_message() ;
 
+void clean_at_exit() ;
+
 typedef struct client {
     pid_t process_id;
-    long id;
-    int queue_id;
+    char id;
+    mqd_t queue_descriptor;
 } client;
 
 client *clients[MAX_CLIENTS + 1];
 //skipping 0 index to avoid sending message with 0 message type
 int client_index = 1;
 
-int queue_id = 0;
+mqd_t queue_descriptor = -1;
 
 int main() {
     printf("%d: Server started\n", getpid());
+    atexit(clean_at_exit);
 
-    queue_id = create_queue();
+    atexit(clean_at_exit);
+    queue_descriptor = create_queue();
     printf("%d: Server is ready to handle requests\n", getpid());
 
     while(1) {
@@ -59,16 +65,27 @@ int main() {
     }
 }
 
+void clean_at_exit() {
+    if (queue_descriptor != -1) {
+        mq_close(queue_descriptor);
+        mq_unlink(SERVER_QUEUE_NAME);
+    }
+}
+
 int create_queue() {
     printf("%d: Server is creating message queue\n", getpid());
 
-    int queue_id;
-    if ((queue_id = msgget(ftok(getenv("HOME"), PROJ_ID), IPC_CREAT | 0666)) == -1) {
+    mqd_t queue_descriptor;
+
+    struct mq_attr attr;
+    attr.mq_maxmsg = MAX_ON_QUEUE;
+    attr.mq_msgsize = MAX_MSG_SIZE;
+    if ((queue_descriptor = mq_open(SERVER_QUEUE_NAME, O_RDONLY | O_CREAT, 0666, &attr)) == -1) {
         perror("Error while creating server queue");
         exit(EXIT_FAILURE);
     }
-    printf("%d: Server created message queue with id %d\n", getpid(), queue_id);
-    return queue_id;
+    printf("%d: Server created message queue with descriptor %d\n", getpid(), queue_descriptor);
+    return queue_descriptor;
 }
 
 void handle_request() {
@@ -83,10 +100,11 @@ message *wait_for_message() {
     message *msg = calloc(1, sizeof(*msg));
 
     printf("%d: Server is waiting for message\n", getpid());
-    if ((msgrcv(queue_id, msg, sizeof(*msg) - sizeof(long), 0, MSG_NOERROR)) == -1) {
+    if ((mq_receive(queue_descriptor, (char *) msg, sizeof(*msg), 0)) == -1) {
         perror("Error while receiving message");
+        return NULL;
     } else {
-        printf("%d: Server received message \"%s\" with type %ld and PID %d\n", getpid(), msg->message, msg->message_type, msg->client);
+        printf("%d: Server received message \"%s\" with type %d and PID %d\n", getpid(), msg->message, msg->message_type, msg->client);
     }
     return msg;
 }
@@ -129,18 +147,19 @@ void handle_register(message *msg) {
     to_register->id = client_index;
 
     /*opening client queue and getting it's identifier*/
-    int key;
-    sscanf(msg->message, "%d", &key);
-    printf("%d: opening client queue with key %d\n", getpid(), key);
-    if ((to_register->queue_id = msgget(key, 0666)) == -1) {
+    char *client_queue_name = calloc(NAME_MAX, sizeof(*client_queue_name));
+    sscanf(msg->message, "%s", client_queue_name);
+    printf("%d: opening client queue with name %s\n", getpid(), client_queue_name);
+    if ((to_register->queue_descriptor = mq_open(client_queue_name, O_WRONLY)) == -1) {
         perror("Error while opening client queue");
     };
+    free(client_queue_name);
 
     clients[client_index] = to_register;
     printf("%d: Client registered at %d id\n", getpid(), client_index);
     ++client_index;
 
-    printf("%d: Server is sending back ID %ld to client PID: %d\n", getpid(), to_register->id, to_register->process_id);
+    printf("%d: Server is sending back ID %d to client PID: %d\n", getpid(), to_register->id, to_register->process_id);
     message *response = create_message(to_register->process_id, "");
     send_message(response);
     free(response);
@@ -148,7 +167,7 @@ void handle_register(message *msg) {
 
 message *create_message(pid_t client_pid, char *text) {
     message *result = malloc(sizeof(*result));
-    strncpy(result->message, text, MSG_MAX_SIZE);
+    strncpy(result->message, text, MAX_MSG_TEXT_SIZE);
     result->client = client_pid;
     return result;
 }
@@ -156,7 +175,7 @@ message *create_message(pid_t client_pid, char *text) {
 void send_message(message *to_send) {
     int id;
     int found = 0;
-    for (id = 1 ; id < MAX_CLIENTS; ++id) {
+    for (id = 1 ; id < client_index; ++id) {
         if (clients[id]->process_id == to_send->client) {
             found = 1;
             break;
@@ -167,8 +186,8 @@ void send_message(message *to_send) {
         fprintf(stderr, "Error while sending message to client: Client with PID %d is not registered\n", to_send->client);
     } else {
         to_send->message_type = id;
-        printf("%d: Server is sending message \"%s\" to PID %d with queue ID: %d\n", getpid(), to_send->message, to_send->client, clients[id]->queue_id);
-        if ((msgsnd(clients[id]->queue_id, to_send, sizeof(*to_send) - sizeof(long), MSG_NOERROR)) == -1) {
+        printf("%d: Server is sending message \"%s\" to PID %d with queue descriptor: %d\n", getpid(), to_send->message, to_send->client, clients[id]->queue_descriptor);
+        if ((mq_send(clients[id]->queue_descriptor, (char *) to_send, sizeof(*to_send), 0)) == -1) {
             perror("Error while sending message to client");
         } else {
             printf("%d: Message sent\n", getpid());
@@ -202,31 +221,31 @@ void handle_time(message *pMessage) {
 void handle_exit(message *pMessage) {
     printf("%d: Server received time request from PID %d\n", getpid(), pMessage->client);
     handle_pending_requests();
-    msgctl(queue_id, IPC_RMID, NULL);
     exit(EXIT_SUCCESS);
 }
 
 void handle_pending_requests() {
     message *msg;
-    printf("%d: Server going to sleep to accumulate pending requests\n", getpid());
-    printf("%d: Server woken up\n", getpid());
 
-    while ((msg = receive_message()) != NULL) {
+    mqd_t non_block_queue_desc = mq_open(SERVER_QUEUE_NAME, O_RDONLY | O_NONBLOCK);
+    while ((msg = receive_message(non_block_queue_desc)) != NULL) {
         process_message(msg);
         free(msg);
     }
+    mq_close(non_block_queue_desc);
 }
 
-message *receive_message() {
+message *receive_message(mqd_t non_block_queue_desc) {
     message *msg = calloc(1, sizeof(*msg));
 
-    printf("%d: Server is receiving message\n", getpid());
-    if ((msgrcv(queue_id, msg, sizeof(*msg) - sizeof(long), 0, MSG_NOERROR | IPC_NOWAIT)) == -1) {
-        if (errno == ENOMSG) {
-            return NULL;
+    printf("%d: Server is waiting for message\n", getpid());
+    if ((mq_receive(non_block_queue_desc, (char *) msg, sizeof(*msg), 0)) == -1) {
+        if (errno != EAGAIN) {
+            fprintf(stderr, "Error while receiving message %s\n", strerror(errno));
         }
-        perror("Error while receiving message");
-    };
-    printf("%d: Server received message \"%s\" with type %ld and PID %d\n", getpid(), msg->message, msg->message_type, msg->client);
+        return NULL;
+    } else {
+        printf("%d: Server received message \"%s\" with type %d and PID %d\n", getpid(), msg->message, msg->message_type, msg->client);
+    }
     return msg;
 }

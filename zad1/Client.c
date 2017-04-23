@@ -25,8 +25,6 @@ void time_option() ;
 
 void exit_option() ;
 
-char *receive_response() ;
-
 void send_to_server(char *text, long message_type) ;
 
 void register_with_key(int key);
@@ -36,6 +34,8 @@ message *receive_message();
 void clean_at_exit() ;
 
 long receive_identity() ;
+
+void wait_for_key() ;
 
 int queue_id = -1;
 long client_identity = 0;
@@ -52,7 +52,15 @@ int main() {
     while (1) {
         print_options();
         process_option(read_option());
+        wait_for_key();
     }
+}
+
+void wait_for_key() {
+    printf("press ENTER key to continue\n");
+    //flushing stdin to wait for ENTER
+    while (getchar() != '\n');
+    getchar();
 }
 
 void clean_at_exit() {
@@ -88,7 +96,6 @@ int create_queue() {
 
 void register_with_key(int key) {
     printf("%d: Client is registering to server with queue id %d\n", getpid(), key);
-    char *queue_buf = calloc(MSG_MAX_SIZE, sizeof(*queue_buf));
     char *queue_buf = calloc(MSG_MAX_SIZE, sizeof(*queue_buf));
     sprintf(queue_buf, "%d", key);
     send_to_server(queue_buf, REGISTER);
@@ -167,10 +174,8 @@ void print_options() {
 }
 
 int read_option() {
-    char *buff = calloc(20, sizeof(*buff));
     int result = 0;
-    scanf("%s", buff);
-    sscanf(buff, "%d", &result);
+    scanf("%d", &result);
     return result;
 }
 
@@ -220,5 +225,7 @@ void time_option() {
 }
 
 void exit_option() {
-
+    printf("%d: Client is requesting exit\n", getpid());
+    send_to_server("", EXIT);
+    printf("%d: Exit requested\n", getpid());
 }

@@ -4,7 +4,7 @@
 #include <sys/msg.h>
 #include <unistd.h>
 #include <stdlib.h>
-#include <wait.h>
+#include <string.h>
 #include "common.h"
 
 void print_options() ;
@@ -21,10 +21,6 @@ void request_time() ;
 
 void request_exit() ;
 
-void send_to_server(int queue_id) ;
-
-int receive_identity(int queue_id) ;
-
 int create_queue() ;
 
 void echo_option() ;
@@ -35,19 +31,25 @@ void time_option() ;
 
 char * receive_response() ;
 
+void send_to_server(char *text, long message_type) ;
+
+void register_with_qid(int queue_id);
+
+message *receive_message(int queue_id) ;
+
+long receive_identity(int queue_id) ;
+
 int main() {
     printf("%d: Client started\n", getpid());
     int queue_id = create_queue();
-    send_to_server(queue_id);
-    int client_identity = receive_identity(queue_id);
+    register_with_qid(queue_id);
+    long client_identity = receive_identity(queue_id);
 
     printf("%d: Client is entering interactive mode to send requests\n", getpid());
     while (1) {
         print_options();
         process_option(read_option());
     }
-
-    return 0;
 }
 
 int create_queue() {
@@ -61,14 +63,72 @@ int create_queue() {
     return queue_id;
 }
 
-void send_to_server(int queue_id) {
-    printf("%d: Client is sending key %d to server\n", getpid(), queue_id);
+void register_with_qid(int queue_id) {
+    printf("%d: Client is registering to server with queue id %d\n", getpid(), queue_id);
+    char *queue_buf = calloc(MSG_MAX_SIZE, sizeof(*queue_buf));
+    sprintf(queue_buf, "%d", queue_id);
+    send_to_server(queue_buf, REGISTER);
+    free(queue_buf);
 }
 
-int receive_identity(int queue_id) {
+void send_to_server(char *text, long message_type) {
+    printf("%d: Client is sending %s to server\n", getpid(), text);
+    //todo deallocate request
+    message *request = malloc(sizeof(*request));
+    request->client = getpid();
+    request->message_type = message_type;
+    strncpy(request->message, text, MSG_MAX_SIZE);
+
+    int key;
+    if ((key = ftok(getenv("HOME"), PROJ_ID)) == -1) {
+        perror("Error while getting server queue key");
+        exit(EXIT_FAILURE);
+    }
+
+    int server_qid;
+    if ((server_qid = msgget(key, 0)) == -1) {
+        perror("Error while getting server queue id");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("%d: Client is sending message: \"%s\" to queue with key: %d and id: %d\n", getpid(), text, key, server_qid);
+    if ((msgsnd(server_qid, request, sizeof(request) - sizeof(long), 0))) {
+        perror("Error while sending register request");
+        exit(EXIT_FAILURE);
+    }
+}
+
+long receive_identity(int queue_id) {
     printf("%d: Client is waiting for ID from server\n", getpid());
-    sleep(1);
-    return 0;
+    message *received = receive_message(queue_id);
+    if (received->message_type == 0) {
+        fprintf(stderr, "Error while registering client");
+        exit(EXIT_FAILURE);
+    }
+    printf("%d: Client registered with identity %ld\n", getpid(), received->message_type);
+    return received->message_type;
+}
+
+message *receive_message(int queue_id) {
+    message *msg = calloc(1, sizeof(*msg));
+
+    printf("%d: Client is waiting for message\n", getpid());
+
+    const int SECONDS_TO_WAIT = 5;
+    const int SECONDS_TO_MICROSECONDS = (const int) 1e6;
+    const int U_INTERVAL = (const int) 1e4;   //time in microseconds between calls to msgrcv, 10000 is 100 ms
+    for (int i = 0; i < SECONDS_TO_WAIT * SECONDS_TO_MICROSECONDS / U_INTERVAL; ++i) {
+        msgrcv(queue_id, msg, sizeof(msg) - sizeof(long), 0, MSG_NOERROR | IPC_NOWAIT);
+        if (msgrcv(queue_id, msg, sizeof(msg) - sizeof(long), 0, MSG_NOERROR | IPC_NOWAIT) == -1) {
+            usleep((__useconds_t) U_INTERVAL);
+        }
+    }
+
+    if ((msgrcv(queue_id, msg, sizeof(msg) - sizeof(long), 0, MSG_NOERROR | IPC_NOWAIT)) == -1) {
+        perror("Error while receiving message");
+    };
+    printf("%d: Client received message %s\n", getpid(), msg->message);
+    return msg;
 }
 
 void print_options() {

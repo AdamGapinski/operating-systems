@@ -8,6 +8,7 @@
 #include <ctype.h>
 #include <time.h>
 #include <errno.h>
+#include <signal.h>
 #include "common.h"
 
 int create_queue() ;
@@ -35,6 +36,8 @@ void handle_pending_requests();
 message *receive_message() ;
 
 void handle_exit() ;
+
+int find_free_slot();
 
 typedef struct client {
     pid_t process_id;
@@ -105,11 +108,6 @@ void process_message(message *msg) {
 }
 
 void handle_register(message *msg) {
-    if (client_index > MAX_CLIENTS) {
-        fprintf(stderr, "Error: Server could not register client with PID %d, because no free slots are available\n", msg->client);
-        return;
-    }
-
     client *to_register = malloc(sizeof(*to_register));
     to_register->process_id = msg->client;
 
@@ -120,12 +118,32 @@ void handle_register(message *msg) {
         perror("Error while opening client queue");
     };
 
-    clients[client_index] = to_register;
-    ++client_index;
+    if (client_index > MAX_CLIENTS) {
+        int index;
+        if ((index = find_free_slot()) != -1) {
+            clients[index] = to_register;
+        } else {
+            fprintf(stderr, "Error: Server could not register client with PID %d, because no free slots are available\n", msg->client);
+            return;
+        }
+    } else {
+        clients[client_index] = to_register;
+        ++client_index;
+    }
 
     message *response = create_message(to_register->process_id, "");
     send_message(response);
     free(response);
+}
+
+int find_free_slot() {
+    for (int i = 1; i < client_index; ++i) {
+        if (kill(clients[i]->process_id, 0) == -1 && errno == ESRCH) {
+            free(clients[i]);
+            return i;
+        }
+    }
+    return -1;
 }
 
 message *create_message(pid_t client_pid, char *text) {

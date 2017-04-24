@@ -117,7 +117,11 @@ void send_to_server(char *text, long message_type) {
     }
 
     if ((msgsnd(server_qid, request, sizeof(*request) - sizeof(long), 0))) {
-        perror("Error while sending register request");
+        if (errno == EINVAL) {
+            fprintf(stderr, "Error while sending request: server not available\n");
+        } else {
+            perror("Error while sending request");
+        }
         exit(EXIT_FAILURE);
     }
     free(request);

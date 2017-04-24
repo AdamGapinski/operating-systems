@@ -31,8 +31,6 @@ void handle_register(message *msg) ;
 
 message *create_message(pid_t client_pid, char *text) ;
 
-void handle_exit(message *pMessage) ;
-
 void handle_pending_requests();
 
 message *receive_message(mqd_t non_block_queue_desc) ;
@@ -43,9 +41,10 @@ void handle_client_exit(message *pMessage) ;
 
 int find_free_slot();
 
+void handle_exit() ;
+
 typedef struct client {
     pid_t process_id;
-    char id;
     mqd_t queue_descriptor;
 } client;
 
@@ -61,8 +60,6 @@ int main() {
 
     atexit(clean_at_exit);
     queue_descriptor = create_queue();
-    printf("%d: Server is ready to handle requests\n", getpid());
-
     while(1) {
         handle_request();
     }
@@ -79,8 +76,6 @@ void clean_at_exit() {
 }
 
 int create_queue() {
-    printf("%d: Server is creating message queue\n", getpid());
-
     mqd_t queue_descriptor;
 
     struct mq_attr attr;
@@ -90,29 +85,23 @@ int create_queue() {
         perror("Error while creating server queue");
         exit(EXIT_FAILURE);
     }
-    printf("%d: Server created message queue with descriptor %d\n", getpid(), queue_descriptor);
     return queue_descriptor;
 }
 
 void handle_request() {
-    printf("%d: Server is waiting for request\n", getpid());
     message *msg = wait_for_message();
     if (msg != NULL) {
         process_message(msg);
         free(msg);
     }
-    printf("%d: Server ended handling request\n", getpid());
 }
 
 message *wait_for_message() {
     message *msg = calloc(1, sizeof(*msg));
 
-    printf("%d: Server is waiting for message\n", getpid());
     if ((mq_receive(queue_descriptor, (char *) msg, sizeof(*msg), 0)) == -1) {
         perror("Error while receiving message");
         return NULL;
-    } else {
-        printf("%d: Server received message \"%s\" with type %d and PID %d\n", getpid(), msg->message, msg->message_type, msg->client);
     }
     return msg;
 }
@@ -120,34 +109,22 @@ message *wait_for_message() {
 void process_message(message *msg) {
     switch (msg->message_type) {
         case REGISTER:
-            printf("%d: Server is registering client\n", getpid());
             handle_register(msg);
-            printf("%d: Server processed registering request\n", getpid());
             break;
         case ECHO:
-            printf("%d: Server is processing %s request\n", getpid(), "echo");
             handle_echo(msg);
-            printf("%d: Server processed %s request\n", getpid(), "echo");
             break;
         case CAPS:
-            printf("%d: Server is processing %s request\n", getpid(), "caps");
             handle_caps(msg);
-            printf("%d: Server processed %s request\n", getpid(), "caps");
             break;
         case TIME:
-            printf("%d: Server is processing %s request\n", getpid(), "time");
             handle_time(msg);
-            printf("%d: Server processed %s request\n", getpid(), "time");
             break;
         case EXIT:
-            printf("%d: Server is processing %s request\n", getpid(), "exit");
-            handle_exit(msg);
-            printf("%d: Server processed %s request\n", getpid(), "exit");
+            handle_exit();
             break;
         case CLIENT_EXIT:
-            printf("%d: Server is processing %s request\n", getpid(), "client exit");
             handle_client_exit(msg);
-            printf("%d: Server processed %s request\n", getpid(), "client exit");
             break;
         default:
             printf("%d: Unrecognized request\n", getpid());
@@ -161,7 +138,6 @@ void handle_register(message *msg) {
     /*opening client queue and getting it's identifier*/
     char *client_queue_name = calloc(NAME_MAX, sizeof(*client_queue_name));
     sscanf(msg->message, "%s", client_queue_name);
-    printf("%d: opening client queue with name %s\n", getpid(), client_queue_name);
     if ((to_register->queue_descriptor = mq_open(client_queue_name, O_WRONLY)) == -1) {
         perror("Error while opening client queue");
     };
@@ -170,14 +146,11 @@ void handle_register(message *msg) {
     int index;
     if ((index = find_free_slot()) != -1) {
         clients[index] = to_register;
-        to_register->id = (char) index;
-        printf("%d: Client registered at %d id\n", getpid(), index);
-        printf("%d: Server is sending back ID %d to client PID: %d\n", getpid(), to_register->id, to_register->process_id);
         message *response = create_message(to_register->process_id, "");
         send_message(response);
         free(response);
     } else {
-        printf("%d: Server could not register client, because no free slots available\n", getpid());
+        fprintf(stderr, "Error: Server could not register client, because no free slots are available\n");
     }
 }
 
@@ -225,28 +198,20 @@ void send_message(message *to_send) {
         fprintf(stderr, "Error while sending message to client: Client with PID %d is not registered\n", to_send->client);
     } else {
         to_send->message_type = (char) id;
-        printf("%d: Server is sending message \"%s\" to PID %d with queue descriptor: %d\n", getpid(), to_send->message, to_send->client, clients[id]->queue_descriptor);
         if ((mq_send(clients[id]->queue_descriptor, (char *) to_send, sizeof(*to_send), 0)) == -1) {
             perror("Error while sending message to client");
-        } else {
-            printf("%d: Message sent\n", getpid());
         }
     }
 }
 
 void handle_echo(message *pMessage) {
-    printf("%d: before sending\n", getpid());
     send_message(pMessage);
 }
 
 void handle_caps(message *pMessage) {
     for (int i = 0; pMessage->message[i] != '\0'; ++i) {
-        printf("%d: uppercasing '%c'\n", getpid(), pMessage->message[i]);
         pMessage->message[i] = (char) toupper(pMessage->message[i]);
-        printf("%d: uppercased '%c'\n", getpid(), pMessage->message[i]);
     }
-
-    printf("%d: before sending\n", getpid());
     send_message(pMessage);
 }
 
@@ -257,14 +222,12 @@ void handle_time(message *pMessage) {
     free(response);
 }
 
-void handle_exit(message *pMessage) {
-    printf("%d: Server received exit request from PID %d\n", getpid(), pMessage->client);
+void handle_exit() {
     handle_pending_requests();
     exit(EXIT_SUCCESS);
 }
 
 void handle_client_exit(message *pMessage) {
-    printf("%d: Server received client exit request from PID %d\n", getpid(), pMessage->client);
     int id = find_client_id(pMessage->client);
 
     if (id != -1) {
@@ -282,7 +245,6 @@ void handle_client_exit(message *pMessage) {
 
 void handle_pending_requests() {
     message *msg;
-
     mqd_t non_block_queue_desc = mq_open(SERVER_QUEUE_NAME, O_RDONLY | O_NONBLOCK);
     while ((msg = receive_message(non_block_queue_desc)) != NULL) {
         process_message(msg);
@@ -294,16 +256,11 @@ void handle_pending_requests() {
 message *receive_message(mqd_t non_block_queue_desc) {
     message *msg = calloc(1, sizeof(*msg));
 
-    printf("%d: Server is waiting for message\n", getpid());
     if ((mq_receive(non_block_queue_desc, (char *) msg, sizeof(*msg), 0)) == -1) {
         if (errno != EAGAIN) {
             fprintf(stderr, "Error while receiving message %s\n", strerror(errno));
-        } else {
-            printf("%d: No messages\n", getpid());
         }
         return NULL;
-    } else {
-        printf("%d: Server received message \"%s\" with type %d and PID %d\n", getpid(), msg->message, msg->message_type, msg->client);
     }
     return msg;
 }

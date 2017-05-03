@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <memory.h>
+#include "include/Common.h"
 
 int parseClientsQueueSize(int argc, char *argv[]) ;
 
@@ -21,8 +22,4 @@ int parseClientsQueueSize(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
     return queueSize;
-}
-
-int init() {
-
 }

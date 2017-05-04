@@ -6,10 +6,10 @@
 #define SHAREDMEMORYSEM_COMMON_H
 
 const int CLIENTS_QUEUE_KEY = 23;
-struct ClientsQueue {
+typedef struct ClientsQueue {
     int *queue;
     int head;
     int queued;
     int size;
-} typedef ClientsQueue;
+} ClientsQueue;
 #endif //SHAREDMEMORYSEM_COMMON_H

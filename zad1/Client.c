@@ -22,11 +22,17 @@ int queue_up();
 
 void wait_shaved_semaphore();
 
+void *getClientsQueue() ;
+
+int enqueue(int *queue, int *head, int *queued, int size, int value) ;
+
+ClientsQueue *clientsQueue;
+
 int main(int argc, char *argv[]) {
     int clients_count = parseUIntArgument(argc, argv, 1, "number of clients");
     int shaving_count = parseUIntArgument(argc, argv, 2, "number of shavings");
+    clientsQueue = (ClientsQueue *) getClientsQueue();
     start_clients(clients_count, shaving_count);
-
     //waiting for child processes
     while (waitpid(-1, NULL, 0) != -1);
     exit(EXIT_SUCCESS);
@@ -74,6 +80,7 @@ void wait_shaved_semaphore() {
 }
 
 int queue_up() {
+    enqueue(clientsQueue->queue, &clientsQueue->head, &clientsQueue->queued, clientsQueue->size, getpid());
     return 0;
 }
 
@@ -95,7 +102,7 @@ int parseUIntArgument(int argc, char **argv, int arg_num, char *des) {
     return result;
 }
 
-void *getAdr(int size) {
+void *getClientsQueue() {
     int key;
     if ((key = ftok("./", CLIENTS_QUEUE_KEY)) == -1) {
         perror("getting key");
@@ -103,7 +110,7 @@ void *getAdr(int size) {
     };
     int shId;
     errno = 0;
-    if ((shId = shmget(key, (size_t) size, 0666)) == -1) {
+    if ((shId = shmget(key, 0, 0666)) == -1) {
         perror("getting shared memory id");
         exit(EXIT_FAILURE);
     }

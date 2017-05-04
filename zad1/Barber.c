@@ -22,6 +22,12 @@ int dequeue(int *queue, int *head, int *queued, int size) ;
 
 void initClientsQueue(int size) ;
 
+int clients_queue_is_empty();
+
+void post_sleeping_barber_semaphore();
+
+void wait_until_sleeping_semaphore_acquired();
+
 ClientsQueue *clientsQueue;
 
 int main(int argc, char *argv[]) {
@@ -29,7 +35,36 @@ int main(int argc, char *argv[]) {
     atexit(clean);
     int size = parseClientsQueueSize(argc, argv);
     initClientsQueue(size);
+
+
+    while (1) {
+        //Barber is checking if anyone is waiting in the queue
+        if (clients_queue_is_empty() == 1) {
+            /*
+             * No one is waiting in the queue, so Barber is going to sleep.
+             * Posting sleeping semaphore allows new client to wake him up.
+             * */
+            post_sleeping_barber_semaphore();
+            wait_until_sleeping_semaphore_acquired();
+            //shaving client
+        } else {
+            //Getting client from queue
+            int clientId = dequeue(clientsQueue->queue, &clientsQueue->head, &clientsQueue->queued, clientsQueue->size);
+
+            //shaving client
+        }
+    }
 }
+
+void wait_until_sleeping_semaphore_acquired() {
+
+}
+
+void post_sleeping_barber_semaphore() {
+
+}
+
+int clients_queue_is_empty() { return clientsQueue->queued == 0 ? 1 : 0; }
 
 int enqueue(int *queue, int *head, int *queued, int size, int value) {
     if (*queued == size) {
@@ -70,13 +105,11 @@ void *getAdr(int size) {
         exit(EXIT_FAILURE);
     };
     int shId;
-
     errno = 0;
     if ((shId = shmget(key, (size_t) size, IPC_CREAT | 0666)) == -1) {
         perror("getting shared memory id");
         exit(EXIT_FAILURE);
     }
-
     void *result;
     if ((result = shmat(shId, NULL, 0)) == (void *) -1) {
         perror("attaching memory");

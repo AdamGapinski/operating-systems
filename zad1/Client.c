@@ -16,6 +16,12 @@ void start_client(int i);
 
 void start_clients(int clients_count, int shaving_count);
 
+int try_get_sleeping_barber_semaphore();
+
+int queue_up();
+
+void wait_shaved_semaphore();
+
 int main(int argc, char *argv[]) {
     int clients_count = parseUIntArgument(argc, argv, 1, "number of clients");
     int shaving_count = parseUIntArgument(argc, argv, 2, "number of shavings");
@@ -40,11 +46,39 @@ void start_clients(int clients_count, int shaving_count) {
 
 void start_client(int shaving_count) {
     while (shaving_count > 0) {
-
-        --shaving_count;
+        if (try_get_sleeping_barber_semaphore() == 1) {
+            /*If client can acquire sleeping barber semaphore, then it means that the barber was sleeping and
+             * the client has woken him up and will be shaved*/
+            --shaving_count;
+            //Client was shaved and now he is leaving
+        } else {
+            /*If client could not acquire sleeping barber semaphore, then it means that the barber is busy and
+             * the client has to wait in the queue*/
+            if (queue_up() == 1) {
+                //Client has found place in queue, and he is waiting to get shaved
+                wait_shaved_semaphore();
+                --shaving_count;
+                //Client was shaved and now he is leaving
+            } else {
+                //Client could not find place in queue, so he is leaving
+            }
+        };
     }
 
+    //Client was shaved shaving_count times, so the process is exiting with success.
     exit(EXIT_SUCCESS);
+}
+
+void wait_shaved_semaphore() {
+
+}
+
+int queue_up() {
+    return 0;
+}
+
+int try_get_sleeping_barber_semaphore() {
+    return 0;
 }
 
 int parseUIntArgument(int argc, char **argv, int arg_num, char *des) {

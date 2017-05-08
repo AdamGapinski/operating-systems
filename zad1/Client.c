@@ -16,15 +16,19 @@ void start_client(int i);
 
 void start_clients(int clients_count, int shaving_count);
 
-int try_get_sleeping_barber_semaphore();
-
 int queue_up();
-
-void wait_shaved_semaphore();
 
 void *getClientsQueue() ;
 
 int enqueue(int *queue, int *head, int *queued, int size, int value) ;
+
+int try_lock(int lock_type);
+
+void log_info(char *info, int id) ;
+
+void wait_lock(int lock_type);
+
+void release_lock(int lock_type) ;
 
 ClientsQueue *clientsQueue;
 
@@ -52,20 +56,31 @@ void start_clients(int clients_count, int shaving_count) {
 
 void start_client(int shaving_count) {
     while (shaving_count > 0) {
-        if (try_get_sleeping_barber_semaphore() == 1) {
+        if (try_lock(SLEEPING_BARBER_LOCK) == 1) {
             /*If client can acquire sleeping barber semaphore, then it means that the barber was sleeping and
              * the client has woken him up and will be shaved*/
+            log_info("Golibroda obudzony", 0);
+            //client is taking a seat
+            wait_lock(CHAIR_LOCK);
+            //client is being shaved
+            wait_lock(DONE_LOCK);
+            release_lock(CHAIR_LOCK);
+            log_info("Klient %d opuszcza zaklad po zakonczeniu strzyzenia", getpid());
             --shaving_count;
             //Client was shaved and now he is leaving
         } else {
             /*If client could not acquire sleeping barber semaphore, then it means that the barber is busy and
              * the client has to wait in the queue*/
             if (queue_up() == 1) {
+                log_info("Klient %d zajal miejsce w poczekalni", getpid());
                 //Client has found place in queue, and he is waiting to get shaved
-                wait_shaved_semaphore();
-                --shaving_count;
+                //todo implement this by releasing lock
+                //wait_lock(getpid());
+                raise(SIGSTOP);
+                log_info("Klient %d opuszcza zaklad po zakonczeniu strzyzenia", getpid());
                 //Client was shaved and now he is leaving
             } else {
+                log_info("Klient %d opuszcza zaklad z powodu braku wolnych miejsc w poczekalni", getpid());
                 //Client could not find place in queue, so he is leaving
             }
         };
@@ -75,8 +90,16 @@ void start_client(int shaving_count) {
     exit(EXIT_SUCCESS);
 }
 
-void wait_shaved_semaphore() {
+void wait_lock(int lock_type) {
 
+}
+
+void release_lock(int lock_type) {
+
+}
+
+int try_lock(int lock_type) {
+    return 0;
 }
 
 int queue_up() {
@@ -84,8 +107,8 @@ int queue_up() {
     return 0;
 }
 
-int try_get_sleeping_barber_semaphore() {
-    return 0;
+void log_info(char *info, int id) {
+
 }
 
 int parseUIntArgument(int argc, char **argv, int arg_num, char *des) {
@@ -123,20 +146,13 @@ void *getClientsQueue() {
 }
 
 int enqueue(int *queue, int *head, int *queued, int size, int value) {
+    wait_lock(WRITING_QUEUE);
     if (*queued == size) {
+        release_lock(WRITING_QUEUE);
         return -1;
     }
     queue[(*head + *queued) % size] = value;
     *queued += 1;
+    release_lock(WRITING_QUEUE);
     return 0;
-}
-
-int dequeue(int *queue, int *head, int *queued, int size) {
-    if (*queued == 0) {
-        return -1;
-    }
-    int result = queue[*head];
-    *head = (*head + 1) % size;
-    *queued -= 1;
-    return result;
 }

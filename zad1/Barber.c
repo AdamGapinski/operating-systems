@@ -34,6 +34,8 @@ int get_lock_info(int info_type);
 
 void wait_lock(int lock_type);
 
+void initSemaphores();
+
 ClientsQueue *clientsQueue;
 
 int main(int argc, char *argv[]) {
@@ -44,30 +46,41 @@ int main(int argc, char *argv[]) {
     initClientsQueue(size);
 
     //todo move to init function
-    release_lock(CHAIR_LOCK); //chair is free, setting to 1
-    wait_lock(DONE_LOCK); //not done, setting to zero
+    //set lock of CLIENT and BARBER turn to 0
     while (1) {
         //Barber is checking if anyone is waiting in the queue
+        wait_lock(BARBER_READY);
         if (clients_queue_is_empty() == 1) {
             /*
              * No one is waiting in the queue, so Barber is going to sleep.
              * Posting sleeping semaphore allows new client to wake him up.
              * */
-            release_lock(SLEEPING_BARBER_LOCK);
+            /*
+             * Waiting before release to avoid situation, when other process still has
+             * lock on sleeping barber, if so then wait until it releases
+             * */
+
             log_info("Golibroda zasypia", 0);
+            release_lock(BARBER_FREE_TO_WAKE_UP); //+1
+            release_lock(BARBER_READY);
+            //clients are free to wake barber up
             //waiting for waking up
-            wait_lock_acquired(SLEEPING_BARBER_LOCK);
-            //waiting for client to take a seat
-            wait_lock_acquired(CHAIR_LOCK);
+            wait_lock_acquired(BARBER_FREE_TO_WAKE_UP);
+            //woken up, some client acquired sleeping barber lock (value 0)
             //getting client pid
             int clientID = get_lock_info(LAST_SEMOP_PID);
+            //barber has to take the done lock to make his job
+            wait_lock(BARBER_TURN);
             log_info("Strzyzenie klienta o identyfikatorze %d", clientID);
             log_info("Zakonczenie strzyzenia klienta o identyfikatorze %d", clientID);
             //client has been shaved, so Barber releases Chair and client can leave then
-            release_lock(DONE_LOCK);
+            release_lock(CLIENT_TURN);
+            wait_lock(BARBER_TURN);
         } else {
+            release_lock(BARBER_READY);
             //Getting client from queue
             int clientId = dequeue(clientsQueue->queue, &clientsQueue->head, &clientsQueue->queued, clientsQueue->size);
+            //todo wait until the client said that is waiting in the queue
             log_info("Strzyzenie klienta o identyfikatorze %d", clientId);
             log_info("Zakonczenie strzyzenia klienta o identyfikatorze %d", clientId);
 
@@ -75,8 +88,29 @@ int main(int argc, char *argv[]) {
             kill(clientId, SIGCONT);
             //release_lock(clientId);
         }
-        release_lock(CHAIR_LOCK); //chair is free, setting to 1
     }
+}
+
+void initSemaphores() {
+    /*
+     *#define SEMAPHORE_COUNT 10
+#define BARBER_FREE_TO_WAKE_UP 0
+#define READING_QUEUE 1
+#define WRITING_QUEUE 2
+#define CHAIR_LOCK 3
+#define SHAVING_LOCK 4
+#define DONE_LOCK 5
+#define BARBER_TURN 6
+#define CLIENT_TURN 7
+#define BLACKHOLE 8
+#define BARBER_READY 9
+#define LAST_SEMOP_PID 653655
+     * */
+
+    for (int i = 0; i < SEMAPHORE_COUNT; ++i) {
+
+    }
+
 }
 
 int get_lock_info(int info_type) {

@@ -56,22 +56,21 @@ void start_clients(int clients_count, int shaving_count) {
 
 void start_client(int shaving_count) {
     while (shaving_count > 0) {
-        if (try_lock(SLEEPING_BARBER_LOCK) == 1) {
+        if (check_unlock(BARBER_READY) && try_lock(SLEEPING_BARBER_LOCK) == 1) {
             /*If client can acquire sleeping barber semaphore, then it means that the barber was sleeping and
              * the client has woken him up and will be shaved*/
             log_info("Golibroda obudzony", 0);
-            //client is taking a seat
-            wait_lock(CHAIR_LOCK);
             //client is being shaved
-            wait_lock(DONE_LOCK);
-            release_lock(CHAIR_LOCK);
+            release_lock(BARBER_TURN);
+            wait_lock(CLIENT_TURN);
             log_info("Klient %d opuszcza zaklad po zakonczeniu strzyzenia", getpid());
+            release_lock(BARBER_TURN);
             --shaving_count;
-            //Client was shaved and now he is leaving
         } else {
             /*If client could not acquire sleeping barber semaphore, then it means that the barber is busy and
              * the client has to wait in the queue*/
             if (queue_up() == 1) {
+                //todo check if strzyzenie juz sie nie zaczelo
                 log_info("Klient %d zajal miejsce w poczekalni", getpid());
                 //Client has found place in queue, and he is waiting to get shaved
                 //todo implement this by releasing lock

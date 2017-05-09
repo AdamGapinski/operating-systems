@@ -7,7 +7,7 @@
 
 #define SEMAPHORE_COUNT 10
 #define BARBER_FREE_TO_WAKE_UP 0
-#define READING_QUEUE 1
+#define READING_QUEUE 2
 #define WRITING_QUEUE 2
 #define CHAIR_LOCK 3
 #define SHAVING_LOCK 4
@@ -19,6 +19,7 @@
 #define LAST_SEMOP_PID 653655
 
 const int CLIENTS_QUEUE_KEY = SEMAPHORE_COUNT;
+int pid = 0;
 
 typedef struct ClientsQueue {
     int *queue;

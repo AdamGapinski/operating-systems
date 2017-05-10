@@ -1,7 +1,7 @@
 #ifndef SHAREDMEMORYSEM_SEMAPHORES_H
 #define SHAREDMEMORYSEM_SEMAPHORES_H
 
-#define SEMAPHORE_COUNT 10
+#define SEMAPHORE_COUNT 9
 #define BARBER_FREE_TO_WAKE_UP 0
 #define QUEUE_SYNCHRONIZATION 1
 #define CHAIR_LOCK 3
@@ -16,6 +16,7 @@
 void removeSemaphores(char *pathname);
 void initSemaphores(char *pathname);
 void wait_semaphore(int lock_type);
+int nowait_semaphore(int lock_type);
 void release_semaphore(int lock_type);
 void set_semaphore(int lock_type, int val);
 int get_semaphore(int lock_type);

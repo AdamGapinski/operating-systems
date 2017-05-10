@@ -16,9 +16,10 @@ void initSemaphores(char *pathname) {
             perror("Error initSemaphores ftok");
             exit(EXIT_FAILURE);
         }
-        if ((semid = semget(key, 1, 0666 | IPC_CREAT | IPC_EXCL)) != -1) {
+        if ((semid = semget(key, 1, 0600 | IPC_CREAT | IPC_EXCL)) != -1) {
+            semaphores_id[i] = semid;
             set_semaphore(i, 0);
-        } else if (errno != EEXIST || (semid = semget(key, 1, 0666)) == -1) {
+        } else if (errno != EEXIST || (semid = semget(key, 1, 0600)) == -1) {
             perror("Error initSemaphores semget");
             exit(EXIT_FAILURE);
         }
@@ -30,7 +31,7 @@ void removeSemaphores(char *pathname) {
     int semid;
     key_t key;
     for (int i = 0; i < SEMAPHORE_COUNT; ++i) {
-        if ((key = ftok(getenv(pathname), i)) == -1) {
+        if ((key = ftok(pathname, i)) == -1) {
             if (errno != ENOENT) {
                 perror("Error removeSemaphores ftok");
                 exit(EXIT_FAILURE);
@@ -79,7 +80,7 @@ void release_semaphore(int lock_type) {
     struct sembuf buf;
     buf.sem_num = 0;
     buf.sem_op = 1;
-    buf.sem_flg = 0;
+    buf.sem_flg = SEM_UNDO;
     if (semop(semaphores_id[lock_type], &buf, 1) == -1) {
         perror("Error release_semaphore");
         exit(EXIT_FAILURE);

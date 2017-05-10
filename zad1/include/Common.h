@@ -6,7 +6,7 @@
 #define SHAREDMEMORYSEM_COMMON_H
 
 const int CLIENTS_QUEUE_KEY = 240;
-int pid = 0;
+char *PATHNAME = "./";
 
 typedef struct ClientsQueue {
     int *queue;

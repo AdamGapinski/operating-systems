@@ -5,7 +5,6 @@
 #include <sys/ipc.h>
 #include <sys/types.h>
 #include "include/Semaphores.h"
-#include "include/Common.h"
 
 int semaphores_id[SEMAPHORE_COUNT];
 
@@ -13,11 +12,24 @@ void wait_semaphore(int lock_type) {
     struct sembuf buf;
     buf.sem_num = 0;
     buf.sem_op = -1;
-    buf.sem_flg = 0;
+    buf.sem_flg = SEM_UNDO;
     if (semop(semaphores_id[lock_type], &buf, 1) == -1) {
         perror("Error wait_lock");
         exit(EXIT_FAILURE);
     };
+}
+
+int nowait_semaphore(int lock_type) {
+    struct sembuf buf;
+    buf.sem_num = 0;
+    buf.sem_op = -1;
+    buf.sem_flg = IPC_NOWAIT | SEM_UNDO;
+    int result = semop(semaphores_id[lock_type], &buf, 1);
+    if (result == -1 && errno != EAGAIN) {
+        perror("Error nowait_semaphore");
+        exit(EXIT_FAILURE);
+    }
+    return result == -1 ? 0 : 1;
 }
 
 void release_semaphore(int lock_type) {

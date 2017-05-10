@@ -8,6 +8,49 @@
 
 int semaphores_id[SEMAPHORE_COUNT];
 
+void initSemaphores(char *pathname) {
+    for (int i = 0; i < SEMAPHORE_COUNT; ++i) {
+        int semid;
+        key_t key;
+        if ((key = ftok(pathname, i)) == -1) {
+            perror("Error initSemaphores ftok");
+            exit(EXIT_FAILURE);
+        }
+        if ((semid = semget(key, 1, 0666 | IPC_CREAT | IPC_EXCL)) != -1) {
+            set_semaphore(i, 0);
+        } else if (errno != EEXIST || (semid = semget(key, 1, 0666)) == -1) {
+            perror("Error initSemaphores semget");
+            exit(EXIT_FAILURE);
+        }
+        semaphores_id[i] = semid;
+    }
+}
+
+void removeSemaphores(char *pathname) {
+    int semid;
+    key_t key;
+    for (int i = 0; i < SEMAPHORE_COUNT; ++i) {
+        if ((key = ftok(getenv(pathname), i)) == -1) {
+            if (errno != ENOENT) {
+                perror("Error removeSemaphores ftok");
+                exit(EXIT_FAILURE);
+            }
+        } else {
+            if ((semid = semget(key, 0, 0)) == -1) {
+                if (errno != ENOENT) {
+                    perror("Error removeSemaphores semget");
+                    exit(EXIT_FAILURE);
+                }
+            } else {
+                if (semctl(semid, 0, IPC_RMID) == -1) {
+                    perror("Error semctl IPC_RMID");
+                    exit(EXIT_FAILURE);
+                };
+            }
+        }
+    }
+}
+
 void wait_semaphore(int lock_type) {
     struct sembuf buf;
     buf.sem_num = 0;

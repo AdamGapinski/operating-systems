@@ -14,6 +14,7 @@
 #define LAST_SEMOP_PID 653655
 
 void removeSemaphores(char *pathname);
+void initSemaphores(char *pathname);
 void wait_semaphore(int lock_type);
 void release_semaphore(int lock_type);
 void set_semaphore(int lock_type, int val);

@@ -5,7 +5,7 @@
 #ifndef SHAREDMEMORYSEM_COMMON_H
 #define SHAREDMEMORYSEM_COMMON_H
 
-const int CLIENTS_QUEUE_KEY = SEMAPHORE_COUNT;
+const int CLIENTS_QUEUE_KEY = 240;
 int pid = 0;
 
 typedef struct ClientsQueue {

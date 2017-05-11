@@ -8,11 +8,4 @@
 const int CLIENTS_QUEUE_KEY = 240;
 char *PATHNAME = "./";
 
-typedef struct ClientsQueue {
-    int *queue;
-    int head;
-    int queued;
-    int size;
-} ClientsQueue;
-
 #endif //SHAREDMEMORYSEM_COMMON_H

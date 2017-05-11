@@ -5,16 +5,22 @@ IDIR=./include
 
 all: Barber Client
 
-Barber: $(ODIR)/Barber.o
+Barber: $(ODIR)/Barber.o $(ODIR)/Semaphores.o $(ODIR)/SharedQueue.o
 	$(CC) $(CFLAGS) $^ -o $@
 
-Client: $(ODIR)/Client.o
+Client: $(ODIR)/Client.o $(ODIR)/Semaphores.o $(ODIR)/SharedQueue.o
 	$(CC) $(CFLAGS) $^ -o $@
 
-$(ODIR)/Barber.o: Barber.c $(IDIR)/Common.h
+$(ODIR)/Barber.o: Barber.c $(IDIR)/Common.h $(IDIR)/Semaphores.h $(IDIR)/SharedQueue.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(ODIR)/Client.o: Client.c $(IDIR)/Common.h
+$(ODIR)/Client.o: Client.c $(IDIR)/Common.h $(IDIR)/Semaphores.h $(IDIR)/SharedQueue.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(ODIR)/SharedQueue.o: SharedQueue.c $(IDIR)/SharedQueue.h $(IDIR)/Semaphores.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(ODIR)/Semaphores.o: Semaphores.c $(IDIR)/Semaphores.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:

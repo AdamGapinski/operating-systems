@@ -1,16 +1,18 @@
 #include <stdlib.h>
-#include <sys/ipc.h>
-#include <sys/shm.h>
-#include <sys/types.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <errno.h>
 #include <unistd.h>
 #include "include/Semaphores.h"
 #include "include/SharedQueue.h"
 
-ClientsQueue *initQueue(char *pathname, int proj_id, int size) {
+int shared_mem_fd;
+
+ClientsQueue *initQueue(char *global_name, int size) {
     ClientsQueue *queue = malloc(sizeof(*queue));
-    void *adr = get_shared_address(sizeof(*queue) + size * sizeof(*queue->array), pathname, proj_id);
+    void *adr = get_shared_address(sizeof(*queue) + size * sizeof(*queue->array), global_name);
     queue->head = adr;
     queue->queued = adr + sizeof(queue->head);
     queue->size = adr + sizeof(queue->head) + sizeof(queue->queued);
@@ -24,11 +26,11 @@ ClientsQueue *initQueue(char *pathname, int proj_id, int size) {
     return queue;
 }
 
-void removeQueue(ClientsQueue *queue, char *pathname, int proj_id) {
-    remove_shared_address(pathname, proj_id, queue->head);
-    remove_shared_address(pathname, proj_id, queue->queued);
-    remove_shared_address(pathname, proj_id, queue->size);
-    remove_shared_address(pathname, proj_id, queue->array);
+void removeQueue(ClientsQueue *queue, char *global_name) {
+    remove_shared_address(global_name, queue->array, *queue->size);
+    remove_shared_address(global_name, queue->head, sizeof(*queue->head));
+    remove_shared_address(global_name, queue->queued, sizeof(*queue->queued));
+    remove_shared_address(global_name, queue->size, sizeof(*queue->size));
     free(queue);
 }
 
@@ -74,50 +76,31 @@ int dequeue(ClientsQueue *queue) {
     return result;
 }
 
-void remove_shared_address(char *pathname, int proj_id, void *adr) {
-    shmdt(adr);
-    errno = 0;
-    int sh_mem_id;
-    key_t key;
-    if ((key = ftok(pathname, proj_id)) == -1) {
-        if (errno != ENOENT) {
-            perror("Error remove_shared_address ftok");
-            exit(EXIT_FAILURE);
-        }
-    } else {
-        if ((sh_mem_id = shmget(key, 0, 0)) == -1) {
-            if (errno != ENOENT) {
-                perror("Error remove_shared_address shmget");
-                exit(EXIT_FAILURE);
-            }
-        } else {
-            if (shmctl(sh_mem_id, 0, IPC_RMID) == -1) {
-                perror("Error remove_shared_address shmctl IPC_RMID");
-                exit(EXIT_FAILURE);
-            };
-        }
-    }
-}
-
-void *get_shared_address(int size, char *pathname, int proj_id) {
-    int key;
-    if ((key = ftok(pathname, proj_id)) == -1) {
-        perror("Error get_shared_address ftok");
+void *get_shared_address(int size, char *global_name) {
+    if ((shared_mem_fd = shm_open(global_name, O_RDWR | O_CREAT, 0600)) == -1) {
+        perror("Error getting shared memory id");
         exit(EXIT_FAILURE);
-    };
-
-    int sh_mem_id;
-    if ((sh_mem_id = shmget(key, (size_t) size, 0600 | IPC_CREAT | IPC_EXCL)) == -1) {
-        if (errno != EEXIST || (sh_mem_id = shmget(key, (size_t) size, 0600)) == -1) {
-            perror("Error get_shared_address shmget id");
-            exit(EXIT_FAILURE);
-        }
     }
-
+    if (ftruncate(shared_mem_fd, size) == -1) {
+        perror("Error ftruncate");
+        exit(EXIT_FAILURE);
+    }
     void *result;
-    if ((result = shmat(sh_mem_id, NULL, 0)) == (void *) -1) {
-        perror("Error get_shared_address shamt");
+    if ((result = mmap(NULL, (size_t) size, PROT_READ | PROT_WRITE, MAP_SHARED, shared_mem_fd, 0)) == MAP_FAILED) {
+        perror("Error mapping shared memory");
         exit(EXIT_FAILURE);
     }
     return result;
+}
+
+void remove_shared_address(char *global_name, void *adr, int size) {
+    munmap(adr, (size_t) size);
+    close(shared_mem_fd);
+    errno = 0;
+    if (shm_unlink(global_name) == -1) {
+        if (errno != ENOENT) {
+            perror("Error memory unlink");
+            exit(EXIT_FAILURE);
+        }
+    }
 }

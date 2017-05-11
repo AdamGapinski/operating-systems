@@ -20,6 +20,8 @@ void log_info(char *info, int id);
 void init(int queue_size) ;
 
 ClientsQueue *clientsQueue;
+int *first_client_id;
+sigset_t rtmin_suspend;
 
 int main(int argc, char *argv[]) {
     int size = parseClientsQueueSize(argc, argv);
@@ -32,11 +34,11 @@ int main(int argc, char *argv[]) {
             release_semaphore(BARBER_FREE_TO_WAKE_UP);
             release_semaphore(CHECKING_QUEUE);
             wait_semaphore(CLIENT_READY);
-            int clientID = get_lock_info(BARBER_FREE_TO_WAKE_UP, LAST_SEMOP_PID);
-            log_info("Strzyzenie klienta o identyfikatorze %d", clientID);
-            log_info("Zakonczenie strzyzenia klienta o identyfikatorze %d", clientID);
+            log_info("Strzyzenie klienta o identyfikatorze %d", *first_client_id);
+            log_info("Zakonczenie strzyzenia klienta o identyfikatorze %d", *first_client_id);
             release_semaphore(DONE_LOCK);
             release_semaphore(NEXT);
+            wait_semaphore(CLIENT_LEFT);
         } else {
             int client_id;
             if ((client_id = dequeue(clientsQueue)) == -1) {
@@ -47,10 +49,9 @@ int main(int argc, char *argv[]) {
             release_semaphore(NEXT);
             log_info("Strzyzenie klienta o identyfikatorze %d", client_id);
             log_info("Zakonczenie strzyzenia klienta o identyfikatorze %d", client_id);
-            set_semaphore(CLIENT_PID, client_id);
-            wait_semaphore(CHECK_PID);
+            kill(client_id, SIGRTMIN);
+            timed_wait_semaphore(CLIENT_LEFT, 1);
         }
-        wait_semaphore(CLIENT_LEFT);
     }
 }
 
@@ -58,22 +59,27 @@ void init(int queue_size) {
     signal(SIGINT, sigintExitHandler);
     atexit(clean);
 
-    removeSemaphores(PATHNAME);
-    initSemaphores(PATHNAME);
-    removeQueue(initQueue(PATHNAME, CLIENTS_QUEUE_KEY, 0), PATHNAME, CLIENTS_QUEUE_KEY);
-    clientsQueue = initQueue(PATHNAME, CLIENTS_QUEUE_KEY, queue_size);
+    removeSemaphores(NAME);
+    initSemaphores(NAME);
+    removeQueue(initQueue(NAME, 0), NAME);
+    clientsQueue = initQueue(NAME, queue_size);
+
+    char name[strlen(NAME) + 1];
+    sprintf(name, "%s1", NAME);
+    first_client_id = (int *) get_shared_address(sizeof(*first_client_id), name);
+
     release_semaphore(QUEUE_SYNCHRONIZATION);
-    release_semaphore(CHECK_PID);
     release_semaphore(CHECKING_QUEUE);
 }
+
 
 void sigintExitHandler(int sig) {
     exit(EXIT_SUCCESS);
 }
 
 void clean() {
-    removeSemaphores(PATHNAME);
-    removeQueue(clientsQueue, PATHNAME, CLIENTS_QUEUE_KEY);
+    removeSemaphores(NAME);
+    removeQueue(clientsQueue, NAME);
 }
 
 void log_info(char *info, int var) {

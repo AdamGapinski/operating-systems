@@ -25,7 +25,14 @@ void log_info(char *info, int var) ;
 
 void init();
 
+void wait_for_signal() ;
+
+void sigrtmin_handler(int signo) ;
+
 ClientsQueue *clientsQueue;
+int shaved = 0;
+sigset_t rtmin_suspend;
+int *first_client_id;
 
 int main(int argc, char *argv[]) {
     int clients_count = parseUIntArgument(argc, argv, 1, "number of clients");
@@ -36,9 +43,24 @@ int main(int argc, char *argv[]) {
     exit(EXIT_SUCCESS);
 }
 
+void sigrtmin_handler(int signo) {
+    shaved = 1;
+    return;
+}
+
 void init() {
-    initSemaphores(PATHNAME);
-    clientsQueue = initQueue(PATHNAME, CLIENTS_QUEUE_KEY, 0);
+    struct sigaction action;
+    action.sa_handler = sigrtmin_handler;
+    sigaction(SIGRTMIN, &action, NULL);
+
+    sigfillset(&rtmin_suspend);
+    sigdelset(&rtmin_suspend, SIGRTMIN);
+
+    initSemaphores(NAME);
+    clientsQueue = initQueue(NAME, 0);
+    char name[strlen(NAME) + 1];
+    sprintf(name, "%s1", NAME);
+    first_client_id = (int *) get_shared_address(sizeof(*first_client_id), name);
 }
 
 void start_clients(int clients_count, int shaving_count) {
@@ -59,23 +81,23 @@ void start_client(int shaving_count) {
         if (nowait_semaphore(BARBER_FREE_TO_WAKE_UP) == 1) {
             release_semaphore(CHECKING_QUEUE);
             log_info("Golibroda obudzony przez %d", getpid());
+            *first_client_id = getpid();
             release_semaphore(CLIENT_READY);
             wait_semaphore(DONE_LOCK);
             log_info("Klient %d opuszcza zaklad po zakonczeniu strzyzenia", getpid());
-            --shaving_count;
             release_semaphore(CLIENT_LEFT);
+            --shaving_count;
         } else {
             if (enqueue(clientsQueue, getpid()) != -1) {
                 log_info("Klient %d zajal miejsce w poczekalni", getpid());
                 release_semaphore(CHECKING_QUEUE);
-                while (get_semaphore(CLIENT_PID) != getpid()) {
-                    wait_semaphore_acquired(CHECK_PID);
+                if (shaved == 0) {
+                    sigsuspend(&rtmin_suspend);
                 }
-                release_semaphore(CHECK_PID);
-                set_semaphore(CLIENT_PID, 0);
+                shaved = 0;
                 log_info("Klient %d opuszcza zaklad po zakonczeniu strzyzenia", getpid());
-                --shaving_count;
                 release_semaphore(CLIENT_LEFT);
+                --shaving_count;
             } else {
                 release_semaphore(CHECKING_QUEUE);
                 log_info("Klient %d opuszcza zaklad z powodu braku wolnych miejsc w poczekalni", getpid());

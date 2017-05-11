@@ -58,7 +58,7 @@ void wait_semaphore(int lock_type) {
     buf.sem_op = -1;
     buf.sem_flg = 0;
     if (semop(semaphores_id[lock_type], &buf, 1) == -1) {
-        perror("Error wait_lock");
+        perror("Error wait_semaphore");
         exit(EXIT_FAILURE);
     };
 }
@@ -128,7 +128,7 @@ void wait_semaphore_acquired(int lock_type) {
     buf.sem_num = 0;
     buf.sem_flg = 0;
     if (semop(semaphores_id[lock_type], &buf, 1) == -1) {
-        perror("Error wait_lock_acquired");
+        perror("Error wait_semaphore_acquired");
         exit(EXIT_FAILURE);
     };
 }

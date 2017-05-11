@@ -56,7 +56,7 @@ void wait_semaphore(int lock_type) {
     struct sembuf buf;
     buf.sem_num = 0;
     buf.sem_op = -1;
-    buf.sem_flg = SEM_UNDO;
+    buf.sem_flg = 0;
     if (semop(semaphores_id[lock_type], &buf, 1) == -1) {
         perror("Error wait_lock");
         exit(EXIT_FAILURE);
@@ -67,7 +67,7 @@ int nowait_semaphore(int lock_type) {
     struct sembuf buf;
     buf.sem_num = 0;
     buf.sem_op = -1;
-    buf.sem_flg = IPC_NOWAIT | SEM_UNDO;
+    buf.sem_flg = IPC_NOWAIT;
     int result = semop(semaphores_id[lock_type], &buf, 1);
     if (result == -1 && errno != EAGAIN) {
         perror("Error nowait_semaphore");
@@ -80,7 +80,7 @@ void release_semaphore(int lock_type) {
     struct sembuf buf;
     buf.sem_num = 0;
     buf.sem_op = 1;
-    buf.sem_flg = SEM_UNDO;
+    buf.sem_flg = 0;
     if (semop(semaphores_id[lock_type], &buf, 1) == -1) {
         perror("Error release_semaphore");
         exit(EXIT_FAILURE);

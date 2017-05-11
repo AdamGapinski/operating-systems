@@ -4,20 +4,23 @@
 #include <sys/types.h>
 #include <stdio.h>
 #include <errno.h>
+#include <unistd.h>
 #include "include/Semaphores.h"
 #include "include/SharedQueue.h"
 
 ClientsQueue *initQueue(char *pathname, int proj_id, int size) {
     ClientsQueue *queue = malloc(sizeof(*queue));
-    void *adr = get_shared_address(sizeof(*queue) + size, pathname, proj_id);
+    void *adr = get_shared_address(sizeof(*queue) + size * sizeof(*queue->array), pathname, proj_id);
     queue->head = adr;
     queue->queued = adr + sizeof(queue->head);
     queue->size = adr + sizeof(queue->head) + sizeof(queue->queued);
     queue->array = adr + sizeof(queue->head) + sizeof(queue->queued) + sizeof(queue->size);
 
-    *queue->head = 0;
-    *queue->queued = 0;
-    *queue->size = size;
+    if (size != 0) {
+        *queue->head = 0;
+        *queue->queued = 0;
+        *queue->size = size;
+    }
     return queue;
 }
 
@@ -43,7 +46,7 @@ int clients_queue_is_full(ClientsQueue *queue) {
     l_queued = *queue->queued;
     l_size = *queue->size;
     release_semaphore(QUEUE_SYNCHRONIZATION);
-    return *queue->queued == *queue->size ? 1 : 0;
+    return l_queued == l_size ? 1 : 0;
 }
 
 int enqueue(ClientsQueue *queue, int value) {

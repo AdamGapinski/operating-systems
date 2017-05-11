@@ -1,7 +1,7 @@
 #ifndef SHAREDMEMORYSEM_SEMAPHORES_H
 #define SHAREDMEMORYSEM_SEMAPHORES_H
 
-#define SEMAPHORE_COUNT 9
+#define SEMAPHORE_COUNT 12
 #define BARBER_FREE_TO_WAKE_UP 0
 #define QUEUE_SYNCHRONIZATION 1
 #define CHAIR_LOCK 3
@@ -11,6 +11,9 @@
 #define CLIENT_TURN 7
 #define BLACKHOLE 8
 #define BARBER_READY 9
+#define CLIENT_READY 10
+#define QUEUE_CLIENT_READY 11
+#define NEXT_IN_QUEUE 12
 #define LAST_SEMOP_PID 653655
 
 void removeSemaphores(char *pathname);

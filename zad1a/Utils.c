@@ -8,7 +8,7 @@
 int parseVerboseArg(int argc, char **argv) {
     int arg_offset = 0;
     if (argc < 2) {
-        fprintf(stderr, "Wrong number of arguments\n");
+        fprintf(stderr, "Error: Argument %d. - %s not specified\n", 1, "[-i] verbose option or number of writers");
         exit(EXIT_FAILURE);
     } else if (strcmp(argv[1], "-i") == 0) {
         verbose = 1;

@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <netinet/in.h>
+#include <endian.h>
 #include "include/utils.h"
 #include "include/queue.h"
 #define UNIX_PATH_MAX 108
@@ -162,18 +163,41 @@ void *startSocketThread(void *arg) {
                         make_log("accepted connection", 0);
                     };
                 } else {
+                    Message message;
                     int received;
-                    int buf_len = CLIENT_MAX_NAME;
-                    char buf[buf_len];
-                    received = (int) recv(events[i].data.fd, buf, (size_t) buf_len, 0);
+                    received = (int) recv(events[i].data.fd, &message, sizeof(message), 0);
+                    message.type = be16toh(message.type);
+                    message.length = be16toh(message.length);
                     if (received == 0) {
-                        make_log("client closed connection\n", 0);
+                        make_log("client closed connection", 0);
                     } else if (received == -1) {
-                        perror("Error recv");
+                        perror("error recv");
                     } else {
                         make_log("received %d bytes", received);
-                        make_log(buf, 0);
+                        make_log("server received type %d", message.type);
+                        make_log("server received length %d", message.length);
                     }
+
+                    size_t msg_data_bytes = message.length * sizeof(char);
+                    char data[msg_data_bytes];
+                    received = (int) recv(events[i].data.fd, data, msg_data_bytes, 0);
+                    if (received == 0) {
+                        make_log("client closed", 0);
+                    } else if (received == -1) {
+                        perror("error recv");
+                    } else {
+                        make_log("received %d bytes", received);
+                        make_log(data, 0);
+                        /*for (int i = 0; i < msg_data_bytes; ++i) {
+                            make_log("received %d", data[i]);
+                        }*/
+                    }
+                    if (shutdown(events[i].data.fd, SHUT_RDWR) == -1) {
+                        perror("shutdown error");
+                        exit(EXIT_FAILURE);
+                    }
+                    close(events[i].data.fd);
+                    //exit(EXIT_FAILURE);
                 }
             }
         }

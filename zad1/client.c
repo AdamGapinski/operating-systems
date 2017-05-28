@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <unistd.h>
+#include <endian.h>
 #include "include/utils.h"
 
 int validate_domain(char *domain);
@@ -15,6 +17,8 @@ void wait_for_inet_requests(char *address, int port);
 void request_name_local(char *name, char *string);
 
 void request_name_inet(char *name, char *address, int port);
+
+int connect_to_server(char *socket_path) ;
 
 int main(int argc, char *argv[]) {
     char *client_name = parseTextArg(argc, argv, 1, "client name");
@@ -38,6 +42,39 @@ int main(int argc, char *argv[]) {
 }
 
 void request_name_local(char *name, char *socket_path) {
+    int server_socket_fd = connect_to_server(socket_path);
+
+    Message *message;
+    size_t msg_bytes = sizeof(message->type) + sizeof(message->length) + strlen(name) + 1;
+    void *msg_data_pointer = calloc(msg_bytes, sizeof(char));
+    message = (Message *) msg_data_pointer;
+    message->type = NAME_REQ_MSG;
+    message->length = (short) (strlen(name) + 1);
+    char *data_pointer = ((char *) message) + sizeof(*message);
+    strncpy(data_pointer, name, strlen(name) + 1);
+
+    make_log("client: type %d", message->type);
+    make_log("client: length %d", message->length);
+    make_log("client: message length %d", (int) msg_bytes);
+    make_log(data_pointer, 0);
+
+    message->type = htobe16(message->type);
+    message->length = htobe16(message->length);
+    //make_log("client: length after htobe16 %d", message->length);
+    ssize_t send_result;
+    if ((send_result = send(server_socket_fd, msg_data_pointer, msg_bytes, 0)) != msg_bytes) {
+        make_log("client: sending error", 0);
+        exit(EXIT_FAILURE);
+    }
+    if (shutdown(server_socket_fd, SHUT_RDWR) == -1) {
+        perror("shutdown error");
+        exit(EXIT_FAILURE);
+    };
+
+    free(msg_data_pointer);
+}
+
+int connect_to_server(char *socket_path) {
     int socket_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     struct sockaddr_un address;
     address.sun_family = AF_UNIX;
@@ -46,13 +83,7 @@ void request_name_local(char *name, char *socket_path) {
         perror("Connection error");
         exit(EXIT_FAILURE);
     }
-    ssize_t send_result;
-    char send_buf[CLIENT_MAX_NAME];
-    strncpy(send_buf, name, CLIENT_MAX_NAME);
-    if ((send_result = send(socket_fd, name, CLIENT_MAX_NAME, 0)) == -1) {
-        perror("Sending error");
-        exit(EXIT_FAILURE);
-    }
+    return socket_fd;
 }
 
 void request_name_inet(char *name, char *address, int port) {

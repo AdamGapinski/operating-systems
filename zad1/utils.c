@@ -7,6 +7,7 @@
 #include <pthread.h>
 #include <sys/socket.h>
 #include "include/utils.h"
+#include "include/queue.h"
 
 pthread_mutex_t logger_read_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t logger_write_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -18,7 +19,9 @@ int logThreadStarted = 0;
 
 void createLoggerThread();
 
-void handle_recv_res(int received) ;
+void data_logging(int data_type, void *data);
+
+void *handle_recv_res(int received, int data_len, void *data, int data_type) ;
 
 char *parseTextArg(int argc, char **argv, int arg_num, char *des) {
     if (argc <= arg_num) {
@@ -56,65 +59,95 @@ long get_thread_id() {
     return syscall(SYS_gettid);
 }
 
-void send_message(int socket_fd, Message *message, void *data) {
-    size_t msg_bytes = sizeof(message->type) + sizeof(message->length) + message->length;
-    void *msg_structure_pointer = calloc(msg_bytes, sizeof(char));
+int send_message(int socket_fd, Message *message, void *data) {
+    size_t msg_bytes = sizeof(*message) + message->length;
+    void *msg_structure_pointer = calloc(msg_bytes, 1);
     Message *msg_data = (Message *) msg_structure_pointer;
     msg_data->type = message->type;
     msg_data->length = message->length;
     void *data_pointer = ((char *) msg_data) + sizeof(*msg_data);
     memcpy(data_pointer, data, (size_t) message->length);
 
-    make_log("sending type %d", message->type);
-    make_log("sending length %d", message->length);
-    make_log("sending message length %d", (int) msg_bytes);
-    make_log("sending message", 0);
-    make_log(data_pointer, 0);
+    data_logging(message->type, data_pointer);
 
     msg_data->type = htobe16(message->type);
     msg_data->length = htobe16(message->length);
-    ssize_t send_result;
-    if ((send_result = send(socket_fd, msg_structure_pointer, msg_bytes, 0)) != msg_bytes) {
-        make_log("client: sending error", 0);
-        exit(EXIT_FAILURE);
+    if (send(socket_fd, msg_structure_pointer, msg_bytes, 0) != msg_bytes) {
+        make_log("sending error", 0);
+        perror("sending error");
+        return -1;
     }
     free(msg_structure_pointer);
+    return 0;
+}
+
+void data_logging(int data_type, void *data) {
+    char *text;
+    Operation *operation;
+    OperationResult *operation_result;
+    make_log("SENDING: ", 0);
+    switch (data_type) {
+        case NAME_REQ_MSG:
+        case NAME_RES_MSG:
+            text = data;
+            make_log(text, 0);
+        case OPERATION_REQ_MSG:
+            operation = data;
+            make_log("operation: first argument %d", (int) operation->first_argument);
+            make_log("operation: second argument %d", (int) operation->second_argument);
+            make_log("operation: operation %d", operation->operation);
+            make_log("operation: operation ID %d", operation->operation_id);
+            make_log("operation: client_id %d", operation->client_id);
+            break;
+        case OPERATION_RES_MSG:
+            operation_result = data;
+            make_log("operation result: result %d", (int) operation_result->result);
+            make_log("operation result: operation_id %d", operation_result->operation_id);
+            break;
+        default:
+            make_log("unsupported operation type: %d", data_type);
+            break;
+    }
 }
 
 void *receive_message(int socket_fd, Message *message) {
     int received = (int) recv(socket_fd, message, sizeof(*message), 0);
+    if (handle_recv_res(received, sizeof(*message), message, -1) == NULL) return NULL;
     message->type = be16toh(message->type);
     message->length = be16toh(message->length);
-    handle_recv_res(received);
-    make_log("received type %d", message->type);
-    make_log("received length %d", message->length);
 
-    size_t msg_data_bytes;
+    char *text;
+    Operation *operation;
+    OperationResult *operation_result;
     switch(message->type) {
         case NAME_REQ_MSG:
         case NAME_RES_MSG:
-            msg_data_bytes = message->length * sizeof(char);
-            char *data = calloc(msg_data_bytes, sizeof(*data));
-            received = (int) recv(socket_fd, data, msg_data_bytes, 0);
-            handle_recv_res(received);
-            return data;
-            break;
+            text = calloc((size_t) message->length, 1);
+            received = (int) recv(socket_fd, text, (size_t) message->length, 0);
+            return handle_recv_res(received, message->length, text, message->type);
+        case OPERATION_REQ_MSG:
+            operation = calloc((size_t) message->length, 1);
+            received = (int) recv(socket_fd, operation, (size_t) message->length, 0);
+            return handle_recv_res(received, message->length, operation, message->type);
         case OPERATION_RES_MSG:
-            break;
+            operation_result = calloc((size_t) message->length, 1);
+            received = (int) recv(socket_fd, operation_result, (size_t) message->length, 0);
+            return handle_recv_res(received, message->length, operation_result, message->type);
         default:
-            make_log("unsupported opperation type %d", message->type);
-            break;
+            make_log("receiving error - invalid data type", 0);
+            perror("receiving error - invalid data type");
+            return NULL;
     }
-    return NULL;
 }
 
-void handle_recv_res(int received) {
-    if (received == 0) {
-        make_log("client closed connection", 0);
-    } else if (received == -1) {
-        perror("error recv");
+void *handle_recv_res(int received, int data_len, void *data, int data_type) {
+    if (received == data_len) {
+        if (data_type != -1) data_logging(data_type, data);
+        return data;
     } else {
-        make_log("received %d bytes", received);
+        make_log("receiving error", 0);
+        perror("receiving error");
+        return NULL;
     }
 }
 

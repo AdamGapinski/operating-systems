@@ -20,7 +20,7 @@ char *parseTextArg(int argc, char **argv, int arg_num, char *des);
 int parseUnsignedIntArg(int argc, char **argv, int arg_num, char *des);
 void setSigIntHandler(void (*handler)(int));
 long get_thread_id();
-void send_message(int socket_fd, Message *message, void *data);
+int send_message(int socket_fd, Message *message, void *data);
 void *receive_message(int socket_fd, Message *message);
 void make_log(char *logArg, int var);
 

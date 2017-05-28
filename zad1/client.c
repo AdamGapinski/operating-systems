@@ -6,19 +6,17 @@
 #include <sys/un.h>
 #include <unistd.h>
 #include <endian.h>
+#include <float.h>
 #include "include/utils.h"
+#include "include/queue.h"
 
 int validate_domain(char *domain);
 
-void wait_for_local_requests(char *socket_path);
-
-void wait_for_inet_requests(char *address, int port);
-
-void request_name_local(char *name, char *string);
-
-void request_name_inet(char *name, char *address, int port);
-
 int connect_to_server(char *socket_path) ;
+
+void wait_for_requests(int server_socket_id);
+
+int solve_operation(Operation *operation, OperationResult *result) ;
 
 int main(int argc, char *argv[]) {
     char *client_name = parseTextArg(argc, argv, 1, "client name");
@@ -33,46 +31,77 @@ int main(int argc, char *argv[]) {
         int server_socket_fd = connect_to_server(socket_path);
         Message message;
         message.type = NAME_REQ_MSG;
-        message.length = strlen(client_name) + 1;
-        send_message(server_socket_fd, &message, client_name);
-        char *response = receive_message(server_socket_fd, &message);
-        make_log("client response:", 0);
-        make_log(response, 0);
-        sleep(1);
+        message.length = (short) (strlen(client_name) + 1);
+        if (send_message(server_socket_fd, &message, client_name) == -1) exit(EXIT_FAILURE);
+        char *response;
+        if ((response = receive_message(server_socket_fd, &message)) == NULL) exit(EXIT_FAILURE);
+        if (strcmp(response, "registered") == 0) {
+            free(response);
+            wait_for_requests(server_socket_fd);
+        } else if (strcmp(response, "not registered") == 0) {
+            make_log("Error: client could not get registered", 0);
+            fprintf(stderr, "Error: client could not get registered\n");
+            exit(EXIT_FAILURE);
+        } else {
+            make_log("Error: Client does not recognize server response", 0);
+            fprintf(stderr, "Error: Client does not recognize server response\n");
+            exit(EXIT_FAILURE);
+        }
+        exit(EXIT_SUCCESS);
     } else if (domain_option == 1){
         char *address = parseTextArg(argc, argv, 3, "IPv4 address");
         int port = parseUnsignedIntArg(argc, argv, 4, "port number");
-        request_name_inet(client_name, address, port);
-        wait_for_inet_requests(address, port);
+
     }
     return 0;
 }
 
-void request_name_local(char *name, char *socket_path) {
-    int server_socket_fd = connect_to_server(socket_path);
-
-    Message *message;
-    size_t msg_bytes = sizeof(message->type) + sizeof(message->length) + strlen(name) + 1;
-    void *msg_data_pointer = calloc(msg_bytes, sizeof(char));
-    message = (Message *) msg_data_pointer;
-    message->type = NAME_REQ_MSG;
-    message->length = (short) (strlen(name) + 1);
-    char *data_pointer = ((char *) message) + sizeof(*message);
-    strncpy(data_pointer, name, strlen(name) + 1);
-
-    make_log("client: type %d", message->type);
-    make_log("client: length %d", message->length);
-    make_log("client: message length %d", (int) msg_bytes);
-    make_log(data_pointer, 0);
-
-    message->type = htobe16(message->type);
-    message->length = htobe16(message->length);
-    ssize_t send_result;
-    if ((send_result = send(server_socket_fd, msg_data_pointer, msg_bytes, 0)) != msg_bytes) {
-        make_log("client: sending error", 0);
-        exit(EXIT_FAILURE);
+int end = 1;
+void wait_for_requests(int server_socket_id) {
+    Message message;
+    Operation *operation;
+    OperationResult result;
+    while (end) {
+        if ((operation = (Operation *) (receive_message(server_socket_id, &message))) != NULL &&
+                solve_operation(operation, &result) == 0) {
+            message.length = sizeof(result);
+            message.type = OPERATION_RES_MSG;
+            if (send_message(server_socket_id, &message, &result) == -1) {
+                make_log("Error: client could not sent back result of operation %d", result.operation_id);
+                fprintf(stderr, "Error: client could not sent back result of operation %d\n", result.operation_id);
+            };
+            free(operation);
+        };
     }
-    free(msg_data_pointer);
+}
+
+int solve_operation(Operation *operation, OperationResult *result) {
+    result->operation_id = operation->operation_id;
+    switch (operation->operation) {
+        case ADDITION:
+            result->result = operation->first_argument + operation->second_argument;
+            break;
+        case SUBTRACTION:
+            result->result = operation->first_argument - operation->second_argument;
+            break;
+        case MULTIPLICATION:
+            result->result = operation->first_argument * operation->second_argument;
+            break;
+        case DIVISION:
+            if (operation->second_argument == 0) {
+                make_log("Error: invalid operation - dividing by zero", 0);
+                fprintf(stderr, "Error: invalid operation - dividing by zero\n");
+                return -1;
+            } else {
+                result->result = operation->first_argument / operation->second_argument;
+            }
+            break;
+        default:
+            make_log("Error: invalid operation number %d", operation->operation);
+            fprintf(stderr, "Error: invalid operation number %d\n", operation->operation);
+            return -1;
+    }
+    return 0;
 }
 
 int connect_to_server(char *socket_path) {

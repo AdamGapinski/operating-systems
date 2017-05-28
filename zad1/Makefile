@@ -15,10 +15,10 @@ client: $(ODIR)/client.o $(ODIR)/utils.o
 $(ODIR)/server.o: server.c $(IDIR)/utils.h $(IDIR)/queue.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(ODIR)/client.o: client.c $(IDIR)/utils.h
+$(ODIR)/client.o: client.c $(IDIR)/utils.h $(IDIR)/queue.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(ODIR)/utils.o: utils.c $(IDIR)/utils.h
+$(ODIR)/utils.o: utils.c $(IDIR)/utils.h $(IDIR)/queue.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(ODIR)/queue.o: queue.c $(IDIR)/queue.h

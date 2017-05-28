@@ -1,13 +1,23 @@
 #ifndef THREADSSYNCHRONIZATION_QUEUE_H
 #define THREADSSYNCHRONIZATION_QUEUE_H
 
+#define ADDITION 1
+#define SUBTRACTION 2
+#define MULTIPLICATION 3
+#define DIVISION 4
+
 typedef struct Operation {
     int operation;
-    int first_argument;
-    int second_argument;
+    double first_argument;
+    double second_argument;
     int client_id;
     int operation_id;
 } Operation;
+
+typedef struct OperationResult {
+    double result;
+    int operation_id;
+} OperationResult;
 
 typedef struct Queue {
     int head;

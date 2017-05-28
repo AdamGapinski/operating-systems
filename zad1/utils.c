@@ -5,6 +5,7 @@
 #include <syscall.h>
 #include <signal.h>
 #include <pthread.h>
+#include <sys/socket.h>
 #include "include/utils.h"
 
 pthread_mutex_t logger_read_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -16,6 +17,8 @@ pthread_t loggerThread;
 int logThreadStarted = 0;
 
 void createLoggerThread();
+
+void handle_recv_res(int received) ;
 
 char *parseTextArg(int argc, char **argv, int arg_num, char *des) {
     if (argc <= arg_num) {
@@ -53,6 +56,68 @@ long get_thread_id() {
     return syscall(SYS_gettid);
 }
 
+void send_message(int socket_fd, Message *message, void *data) {
+    size_t msg_bytes = sizeof(message->type) + sizeof(message->length) + message->length;
+    void *msg_structure_pointer = calloc(msg_bytes, sizeof(char));
+    Message *msg_data = (Message *) msg_structure_pointer;
+    msg_data->type = message->type;
+    msg_data->length = message->length;
+    void *data_pointer = ((char *) msg_data) + sizeof(*msg_data);
+    memcpy(data_pointer, data, (size_t) message->length);
+
+    make_log("sending type %d", message->type);
+    make_log("sending length %d", message->length);
+    make_log("sending message length %d", (int) msg_bytes);
+    make_log("sending message", 0);
+    make_log(data_pointer, 0);
+
+    msg_data->type = htobe16(message->type);
+    msg_data->length = htobe16(message->length);
+    ssize_t send_result;
+    if ((send_result = send(socket_fd, msg_structure_pointer, msg_bytes, 0)) != msg_bytes) {
+        make_log("client: sending error", 0);
+        exit(EXIT_FAILURE);
+    }
+    free(msg_structure_pointer);
+}
+
+void *receive_message(int socket_fd, Message *message) {
+    int received = (int) recv(socket_fd, message, sizeof(*message), 0);
+    message->type = be16toh(message->type);
+    message->length = be16toh(message->length);
+    handle_recv_res(received);
+    make_log("received type %d", message->type);
+    make_log("received length %d", message->length);
+
+    size_t msg_data_bytes;
+    switch(message->type) {
+        case NAME_REQ_MSG:
+        case NAME_RES_MSG:
+            msg_data_bytes = message->length * sizeof(char);
+            char *data = calloc(msg_data_bytes, sizeof(*data));
+            received = (int) recv(socket_fd, data, msg_data_bytes, 0);
+            handle_recv_res(received);
+            return data;
+            break;
+        case OPERATION_RES_MSG:
+            break;
+        default:
+            make_log("unsupported opperation type %d", message->type);
+            break;
+    }
+    return NULL;
+}
+
+void handle_recv_res(int received) {
+    if (received == 0) {
+        make_log("client closed connection", 0);
+    } else if (received == -1) {
+        perror("error recv");
+    } else {
+        make_log("received %d bytes", received);
+    }
+}
+
 void *startLoggerThread(void *filename) {
     pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
     FILE *logFile;
@@ -77,6 +142,7 @@ void *startLoggerThread(void *filename) {
 
 void make_log(char *logArg, int var) {
     pthread_mutex_lock(&logger_write_mutex);
+    if (logArg == NULL) logArg = "NULL";
     if (logThreadStarted == 0) {
         pthread_mutex_lock(&logger_read_mutex);
         createLoggerThread();

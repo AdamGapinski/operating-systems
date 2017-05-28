@@ -8,8 +8,10 @@
 #include <errno.h>
 #include <netinet/in.h>
 #include <endian.h>
+#include <arpa/inet.h>
 #include "include/utils.h"
 #include "include/queue.h"
+
 #define UNIX_PATH_MAX 108
 #define LISTEN_BACKLOG 50
 #define MAX_CLIENTS 22
@@ -32,8 +34,21 @@ int setup_server_inet_socket(int i);
 
 int setup_server_local_socket(int epoll_fd) ;
 
+void handle_recv_res(int received);
+
+int accept_connection(int epoll_fd, int socket_fd, struct sockaddr *client_address, socklen_t client_address_size) ;
+
+void *receive_message(int socket_fd, Message *message) ;
+
+int register_client(char *name);
+
+void init_clients_array() ;
+
+int choose_client();
+
 in_port_t port;
 char *path;
+char **clients;
 const int queue_size = 10;
 Queue *operations;
 int operation_counter = 0;
@@ -48,10 +63,18 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
     operations = init_queue(queue_size);
+    init_clients_array();
     make_log("\t\t\tserver started", 0);
     start_threads();
 
     pthread_exit((void *) 0);
+}
+
+void init_clients_array() {
+    clients = malloc(sizeof(*clients) * MAX_CLIENTS);
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        clients[i] = NULL;
+    }
 }
 
 void start_threads() {
@@ -132,73 +155,43 @@ void *startSocketThread(void *arg) {
         } else {
             make_log("socket epoll_waited %d", fd_num);
             for (int i = 0; i < fd_num; ++i) {
+                int client_socket_fd;
                 if (events[i].data.fd == server_local_socket) {
-                    int cl_sock_fd;
                     struct sockaddr_un client_address;
                     socklen_t adr_size = sizeof(struct sockaddr_un);
-                    if ((cl_sock_fd = accept(server_local_socket, (struct sockaddr *) &client_address, &adr_size)) == -1) {
-                        perror("Error accept local");
-                    } else {
-                        struct epoll_event event;
-                        event.events = EPOLLIN;
-                        event.data.fd = cl_sock_fd;
-                        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, cl_sock_fd, &event) == -1) {
-                            perror("Error epoll_ctl add");
-                        }
-                        make_log("accepted connection", 0);
-                    };
+                    client_socket_fd = accept_connection(epoll_fd, server_local_socket,
+                                                         (struct sockaddr *) &client_address, adr_size);
+                    make_log(client_address.sun_path, 0);
+                    make_log("sun family %d", client_address.sun_family);
                 } else if (events[i].data.fd == server_inet_socket) {
-                    int cl_sock_fd;
                     struct sockaddr_in client_address;
                     socklen_t adr_size = sizeof(struct sockaddr_in);
-                    if ((cl_sock_fd = accept(server_inet_socket, (struct sockaddr *) &client_address, &adr_size)) == -1) {
-                        perror("Error accept inet");
-                    } else {
-                        struct epoll_event event;
-                        event.events = EPOLLIN;
-                        event.data.fd = cl_sock_fd;
-                        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, cl_sock_fd, &event) == -1) {
-                            perror("Error epoll_ctl add");
-                        }
-                        make_log("accepted connection", 0);
-                    };
+                    client_socket_fd = accept_connection(epoll_fd, server_inet_socket,
+                                                         (struct sockaddr *) &client_address, adr_size);
+                    //make_log(client_address.sin_addr.s_addr)
                 } else {
-                    Message message;
-                    int received;
-                    received = (int) recv(events[i].data.fd, &message, sizeof(message), 0);
-                    message.type = be16toh(message.type);
-                    message.length = be16toh(message.length);
-                    if (received == 0) {
-                        make_log("client closed connection", 0);
-                    } else if (received == -1) {
-                        perror("error recv");
-                    } else {
-                        make_log("received %d bytes", received);
-                        make_log("server received type %d", message.type);
-                        make_log("server received length %d", message.length);
-                    }
-
-                    size_t msg_data_bytes = message.length * sizeof(char);
-                    char data[msg_data_bytes];
-                    received = (int) recv(events[i].data.fd, data, msg_data_bytes, 0);
-                    if (received == 0) {
-                        make_log("client closed", 0);
-                    } else if (received == -1) {
-                        perror("error recv");
-                    } else {
-                        make_log("received %d bytes", received);
-                        make_log(data, 0);
-                        /*for (int i = 0; i < msg_data_bytes; ++i) {
-                            make_log("received %d", data[i]);
-                        }*/
-                    }
-                    if (shutdown(events[i].data.fd, SHUT_RDWR) == -1) {
-                        perror("shutdown error");
-                        exit(EXIT_FAILURE);
-                    }
-                    close(events[i].data.fd);
-                    //exit(EXIT_FAILURE);
+                    continue;
                 }
+                Message message;
+                message.type = NAME_REQ_MSG;
+                char *name = receive_message(client_socket_fd, &message);
+                make_log(name, 0);
+                char *response_msg_data;
+                if (register_client(name) == 1) {
+                    response_msg_data = "registered";
+                    make_log("registered: ", 0);
+                    make_log(name, 0);
+                } else {
+                    response_msg_data = "not registered";
+                    make_log("not registered: ", 0);
+                    make_log(name, 0);
+                }
+                message.type = NAME_RES_MSG;
+                message.length = (short) (strlen(response_msg_data) + 1);
+                send_message(client_socket_fd, &message, response_msg_data);
+                free(name);
+                sleep(1);
+                exit(EXIT_FAILURE);
             }
         }
         pthread_mutex_lock(&queue_mutex);
@@ -214,6 +207,37 @@ void *startSocketThread(void *arg) {
     }
     make_log("socket: exited", 0);
     pthread_exit((void *) 0);
+}
+
+int choose_client() {
+    return 0;
+}
+
+int register_client(char *name) {
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        if (clients[i] == NULL) {
+            clients[i] = name;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int accept_connection(int epoll_fd, int socket_fd, struct sockaddr *client_address, socklen_t client_address_size) {
+    int cl_socket_fd;
+    if ((cl_socket_fd = accept(socket_fd, (struct sockaddr *) &client_address, &client_address_size)) == -1) {
+        perror("Error accept");
+    } else {
+        struct epoll_event event;
+        event.events = EPOLLIN;
+        event.data.fd = cl_socket_fd;
+        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, cl_socket_fd, &event) == -1) {
+            perror("Error epoll_ctl add");
+        }
+        make_log("accepted connection", 0);
+    };
+
+    return cl_socket_fd;
 }
 
 int setup_server_local_socket(int epoll_fd) {
@@ -273,52 +297,6 @@ int setup_server_inet_socket(int epoll_fd) {
         exit(EXIT_FAILURE);
     }
     return server_inet_socket;
-}
-
-/*void accept_client() {
-    int clientd;
-    struct sockaddr_un client_address;
-    socklen_t client_address_struct_size = sizeof(struct sockaddr_un);
-    if ((clientd = accept(server_local_socket, (struct sockaddr *) &client_address, &client_address_struct_size)) == -1) {
-        perror("Error accept");
-        exit(EXIT_FAILURE);
-    }
-
-    while (1) {
-        int rec_result;
-        int buf_len = CLIENT_MAX_NAME;
-        char buf[buf_len];
-        rec_result = (int) recv(clientd, buf, (size_t) buf_len, 0);
-
-        if (rec_result == 0) {
-            printf("client closed connection\n");
-        } else if (rec_result == -1) {
-            perror("Error receive");
-            exit(EXIT_FAILURE);
-        } else {
-            printf("received %d bytes\n", rec_result);
-            printf("received %s\n", buf);
-        }
-        sleep(1);
-    }
-
-    if (shutdown(server_local_socket, SHUT_RDWR) == -1) {
-        printf("errno %d ", errno);
-        perror("shutdown error");
-        exit(EXIT_FAILURE);
-    }
-
-    if (close(server_local_socket) == -1) {
-        printf("errno %d ", errno);
-        perror("close error");
-        exit(EXIT_FAILURE);
-    }
-
-    unlink(path);
-}*/
-
-int choose_client() {
-    return 0;
 }
 
 void *startPingThread(void *arg) {

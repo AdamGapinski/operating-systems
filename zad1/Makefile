@@ -4,6 +4,8 @@ ODIR=./obj
 IDIR=./include
 LDLIBS=-lpthread
 
+all: server client
+
 server: $(ODIR)/server.o $(ODIR)/utils.o $(ODIR)/queue.o
 	$(CC) $(CFLAGS) $^ $(LDLIBS) -o $@
 

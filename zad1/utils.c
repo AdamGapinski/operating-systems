@@ -91,6 +91,7 @@ void data_logging(int data_type, void *data) {
         case NAME_RES_MSG:
             text = data;
             make_log(text, 0);
+            break;
         case OPERATION_REQ_MSG:
             operation = data;
             make_log("operation: first argument %d", (int) operation->first_argument);

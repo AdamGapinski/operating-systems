@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <sys/un.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -26,34 +27,32 @@ void *startPingThread(void *arg) ;
 
 void schedule_operation(int option);
 
-int choose_client();
-
 int read_option() ;
 
 int setup_server_inet_socket(int i);
 
 int setup_server_local_socket(int epoll_fd) ;
 
-void handle_recv_res(int received);
-
-int accept_connection(int epoll_fd, int socket_fd, struct sockaddr *client_address, socklen_t client_address_size) ;
-
 void *receive_message(int socket_fd, Message *message) ;
-
-int register_client(char *name);
 
 void init_clients_array() ;
 
-int choose_client();
+int try_register_client(int epoll_fd, int server_socket);
+
+int find_slot() ;
+
+int name_available(char *name);
 
 in_port_t port;
 char *path;
-char **clients;
+char **clients_names;
+int clients_sockets[MAX_CLIENTS];
 const int queue_size = 10;
 Queue *operations;
 int operation_counter = 0;
 pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t queue_cond_not_full = PTHREAD_COND_INITIALIZER;
+pthread_cond_t queue_cond = PTHREAD_COND_INITIALIZER;
 
 int main(int argc, char *argv[]) {
     port = (in_port_t) parseUnsignedIntArg(argc, argv, 1, "UDP port number");
@@ -71,9 +70,9 @@ int main(int argc, char *argv[]) {
 }
 
 void init_clients_array() {
-    clients = malloc(sizeof(*clients) * MAX_CLIENTS);
+    clients_names = malloc(sizeof(*clients_names) * MAX_CLIENTS);
     for (int i = 0; i < MAX_CLIENTS; ++i) {
-        clients[i] = NULL;
+        clients_names[i] = NULL;
     }
 }
 
@@ -101,7 +100,7 @@ void *startTerminalThread(void *arg) {
             printf("exit");
             break;
         } else {
-            printf("unsupported operation");
+            printf("unsupported operation\n");
         }
     }
     make_log("terminal: exited", 0);
@@ -121,11 +120,11 @@ int read_option() {
 }
 
 void schedule_operation(int option) {
-    int first_arg, second_arg;
+    double first_arg, second_arg;
     printf("operation first argument:\n");
-    scanf("%d", &first_arg);
+    scanf("%lf", &first_arg);
     printf("operation second argument:\n");
-    scanf("%d", &second_arg);
+    scanf("%lf", &second_arg);
     ++operation_counter;
     Operation *operation = init_operation(option, first_arg, second_arg, -1, operation_counter);
     pthread_mutex_lock(&queue_mutex);
@@ -145,99 +144,131 @@ void *startSocketThread(void *arg) {
     }
     int server_local_socket = setup_server_local_socket(epoll_fd);
     int server_inet_socket = setup_server_inet_socket(epoll_fd);
+
+    Operation *operation = NULL;
+    struct epoll_event events[MAX_CLIENTS];
+    int waited_fds_num;
+
     while (1) {
-        struct epoll_event events[MAX_CLIENTS];
-        int fd_num;
         make_log("socket epoll_wait", 0);
-        if ((fd_num = epoll_wait(epoll_fd, events, MAX_CLIENTS, 100000)) == -1) {
+        if ((waited_fds_num = epoll_wait(epoll_fd, events, MAX_CLIENTS, -1)) == -1) {
+            make_log("Error epoll_wait", 0);
             perror("Error epoll_wait");
             exit(EXIT_FAILURE);
-        } else {
-            make_log("socket epoll_waited %d", fd_num);
-            for (int i = 0; i < fd_num; ++i) {
-                int client_socket_fd;
-                if (events[i].data.fd == server_local_socket) {
-                    struct sockaddr_un client_address;
-                    socklen_t adr_size = sizeof(struct sockaddr_un);
-                    client_socket_fd = accept_connection(epoll_fd, server_local_socket,
-                                                         (struct sockaddr *) &client_address, adr_size);
-                    make_log(client_address.sun_path, 0);
-                    make_log("sun family %d", client_address.sun_family);
-                } else if (events[i].data.fd == server_inet_socket) {
-                    struct sockaddr_in client_address;
-                    socklen_t adr_size = sizeof(struct sockaddr_in);
-                    client_socket_fd = accept_connection(epoll_fd, server_inet_socket,
-                                                         (struct sockaddr *) &client_address, adr_size);
-                    //make_log(client_address.sin_addr.s_addr)
-                } else {
-                    continue;
-                }
+        }
+        make_log("socket epoll_waited %d", waited_fds_num);
+        for (int i = 0; i < waited_fds_num; ++i) {
+            int event_socket_fd = events[i].data.fd;
+            if (event_socket_fd == server_local_socket) {
+                try_register_client(epoll_fd, server_local_socket);
+            } else if (event_socket_fd == server_inet_socket) {
+                try_register_client(epoll_fd, server_inet_socket);
+            } else if ((events[i].events & EPOLLOUT) != 0 && operation != NULL){
+                make_log("client with socked fd: %d ready to write to", events[i].data.fd);
                 Message message;
-                message.type = NAME_REQ_MSG;
-                char *name = receive_message(client_socket_fd, &message);
-                make_log(name, 0);
-                char *response_msg_data;
-                if (register_client(name) == 1) {
-                    response_msg_data = "registered";
-                    make_log("registered: ", 0);
-                    make_log(name, 0);
+                message.length = sizeof(*operation);
+                message.type = OPERATION_REQ_MSG;
+                if (send_message(events[i].data.fd, &message, operation) == -1) {
+                    make_log("Error: server sending operation to client", 0);
                 } else {
-                    response_msg_data = "not registered";
-                    make_log("not registered: ", 0);
-                    make_log(name, 0);
+                    free(operation);
+                    operation = NULL;
+                };
+            } else if ((events[i].events & EPOLLIN) != 0){
+                make_log("client with socked fd: %d ready to read from", events[i].data.fd);
+                Message message;
+                OperationResult *result = NULL;
+                if ((result = receive_message(events[i].data.fd, &message)) == NULL) {
+                    make_log("Error: server receiving operation result from client", 0);
+                } else {
+                    printf("result of %d: %f\n", result->operation_id, result->result);
+                    make_log("obtained result %d", (int) result->result);
+                    make_log("obtained result id %d", result->operation_id);
+                    free(result);
                 }
-                message.type = NAME_RES_MSG;
-                message.length = (short) (strlen(response_msg_data) + 1);
-                send_message(client_socket_fd, &message, response_msg_data);
-                free(name);
-                sleep(1);
-                exit(EXIT_FAILURE);
+            }
+            else {
+                make_log("client with socked fd: %d ready", events[i].data.fd);
             }
         }
+
         pthread_mutex_lock(&queue_mutex);
-        if (queue_empty(operations) == 0) {
-            Operation *operation = dequeue(operations);
-            pthread_cond_signal(&queue_cond_not_full);
-            pthread_mutex_unlock(&queue_mutex);
-            make_log("processing operation %d", operation->operation_id);
-            operation->client_id = choose_client();
-        } else {
-            pthread_mutex_unlock(&queue_mutex);
+        if (queue_empty(operations) == 1) {
+            struct timespec ts;
+            clock_gettime(CLOCK_REALTIME, &ts);
+            ts.tv_sec += 1;
+            pthread_cond_timedwait(&queue_cond, &queue_mutex, &ts);
         }
+        operation = dequeue(operations);
+        pthread_cond_signal(&queue_cond_not_full);
+        pthread_mutex_unlock(&queue_mutex);
+        if (operation != NULL) make_log("processing operation %d", operation->operation_id);
     }
     make_log("socket: exited", 0);
     pthread_exit((void *) 0);
 }
 
-int choose_client() {
+int try_register_client(int epoll_fd, int server_socket) {
+    int client_socket_fd;
+    if ((client_socket_fd = accept(server_socket, NULL, NULL)) == -1) {
+        make_log("Error accept4", 0);
+        return -1;
+    }
+    int slot_index;
+    if ((slot_index = find_slot()) == -1) {
+        make_log("No free slot for new client", 0);
+        shutdown(client_socket_fd, SHUT_RDWR);
+        close(client_socket_fd);
+        return -1;
+    }
+    Message message;
+    message.type = NAME_RES_MSG;
+    char *name;
+    if ((name = receive_message(client_socket_fd, &message)) == NULL) {
+        make_log("Error receiving client name", 0);
+        perror("Error receiving client name");
+        return -1;
+    };
+    if (name_available(name) == -1) {
+        char *msg_buf = "not registered";
+        message.length = (short) (strlen(msg_buf) + 1);
+        send_message(client_socket_fd, &message, msg_buf);
+        return -1;
+    }
+    char *msg_buf = "registered";
+    message.length = (short) (strlen(msg_buf) + 1);
+    send_message(client_socket_fd, &message, msg_buf);
+    clients_sockets[slot_index] = client_socket_fd;
+    clients_names[slot_index] = name;
+
+    struct epoll_event event;
+    event.events = EPOLLIN | EPOLLOUT;
+    event.data.fd = client_socket_fd;
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_socket_fd, &event) == -1) {
+        make_log("Error epoll_ctl add", 0);
+        perror("Error epoll_ctl add");
+        return -1;
+    }
+    make_log("accepted connection", 0);
     return 0;
 }
 
-int register_client(char *name) {
+int name_available(char *name) {
     for (int i = 0; i < MAX_CLIENTS; ++i) {
-        if (clients[i] == NULL) {
-            clients[i] = name;
-            return 1;
+        if (clients_names[i] != NULL && strcmp(clients_names[i], name) == 0) {
+            return -1;
         }
     }
     return 0;
 }
 
-int accept_connection(int epoll_fd, int socket_fd, struct sockaddr *client_address, socklen_t client_address_size) {
-    int cl_socket_fd;
-    if ((cl_socket_fd = accept(socket_fd, (struct sockaddr *) &client_address, &client_address_size)) == -1) {
-        perror("Error accept");
-    } else {
-        struct epoll_event event;
-        event.events = EPOLLIN;
-        event.data.fd = cl_socket_fd;
-        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, cl_socket_fd, &event) == -1) {
-            perror("Error epoll_ctl add");
+int find_slot() {
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        if (clients_names[i] == NULL) {
+            return i;
         }
-        make_log("accepted connection", 0);
-    };
-
-    return cl_socket_fd;
+    }
+    return -1;
 }
 
 int setup_server_local_socket(int epoll_fd) {

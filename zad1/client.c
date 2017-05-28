@@ -107,6 +107,7 @@ int solve_operation(Operation *operation, OperationResult *result) {
 int connect_to_server(char *socket_path) {
     int socket_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     struct sockaddr_un address;
+    memset(&address, 0, sizeof(address));
     address.sun_family = AF_UNIX;
     strcpy(address.sun_path, socket_path);
     if (connect(socket_fd, (struct sockaddr *) &address, sizeof(address)) == -1) {

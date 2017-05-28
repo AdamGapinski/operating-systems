@@ -10,7 +10,7 @@ Queue *init_queue(int size) {
     return queue;
 }
 
-Operation *init_operation(int operation, int first_argument, int second_argument,
+Operation *init_operation(int operation, double first_argument, double second_argument,
                           int client_id, int operation_id) {
     Operation *result = malloc(sizeof(*result));
     result->operation = operation;

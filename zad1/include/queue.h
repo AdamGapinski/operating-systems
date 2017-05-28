@@ -27,7 +27,7 @@ typedef struct Queue {
 } Queue;
 
 Queue *init_queue(int size);
-Operation *init_operation(int operation, int first_argument, int second_argument,
+Operation *init_operation(int operation, double first_argument, double second_argument,
                           int client_id, int operation_id);
 int queue_empty(Queue *queue);
 int queue_full(Queue *queue);

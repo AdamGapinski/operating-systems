@@ -18,6 +18,12 @@
 #define LISTEN_BACKLOG 50
 #define MAX_CLIENTS 22
 
+typedef struct Client {
+    char *name;
+    int socket_fd;
+    int active;
+} Client;
+
 void start_threads();
 
 void *startTerminalThread(void *arg) ;
@@ -26,7 +32,7 @@ void *startSocketThread(void *arg) ;
 
 void *startPingThread(void *arg) ;
 
-void schedule_operation(int option);
+void enqueue_operation(int option);
 
 int read_option() ;
 
@@ -46,12 +52,13 @@ int name_available(char *name);
 
 void to_string(Operation *operation, char *buf) ;
 
-char *find_client_name(int id);
+Client *find_client(int socket_fd) ;
+
+int try_send_operation(Operation *operation);
 
 in_port_t port;
 char *path;
-char **clients_names;
-int clients_sockets[MAX_CLIENTS];
+Client *clients[MAX_CLIENTS];
 const int queue_size = 10;
 Queue *operations;
 int operation_counter = 0;
@@ -69,15 +76,15 @@ int main(int argc, char *argv[]) {
     operations = init_queue(queue_size);
     init_clients_array();
     make_log("\t\t\tserver started", 0);
+    srand((unsigned int) time(NULL));
     start_threads();
 
     pthread_exit((void *) 0);
 }
 
 void init_clients_array() {
-    clients_names = malloc(sizeof(*clients_names) * MAX_CLIENTS);
     for (int i = 0; i < MAX_CLIENTS; ++i) {
-        clients_names[i] = NULL;
+        clients[i] = NULL;
     }
 }
 
@@ -98,7 +105,7 @@ void *startTerminalThread(void *arg) {
     while (1) {
         int option = read_option();
         if (option > 0 && option < 5) {
-            schedule_operation(option);
+            enqueue_operation(option);
         } else if (option == 5) {
             //todo cancel the other threads
             printf("exited\n");
@@ -153,7 +160,7 @@ int read_argument(char *info) {
     return argument;
 }
 
-void schedule_operation(int option) {
+void enqueue_operation(int option) {
     double first_arg, second_arg;
     first_arg = read_argument("operation first argument");
     second_arg = read_argument("operation second argument");
@@ -212,8 +219,13 @@ void *startSocketThread(void *arg) {
         operation = dequeue(operations);
         pthread_cond_signal(&queue_cond_not_full);
         pthread_mutex_unlock(&queue_mutex);
+        if (operation != NULL && try_send_operation(operation) == 1) {
+            make_log("operation sent", 0);
+            operation = NULL;
+            free(operation);
+        }
 
-        if ((waited_fds_num = epoll_wait(epoll_fd, events, MAX_CLIENTS, -1)) == -1) {
+        if ((waited_fds_num = epoll_wait(epoll_fd, events, MAX_CLIENTS, 0)) == -1) {
             make_log("Error epoll_wait", 0);
             perror("Error epoll_wait");
             exit(EXIT_FAILURE);
@@ -223,43 +235,35 @@ void *startSocketThread(void *arg) {
             if (((events[i].events & EPOLLERR) ||
                     (events[i].events & EPOLLHUP)) &&
                     (events[i].events & EPOLLIN) == 0) {
-                //todo clients should be closed by ping thread
                 shutdown(event_socket_fd, SHUT_RDWR);
                 close(event_socket_fd);
+                errno = 0;
+                continue;
             } else if (event_socket_fd == server_local_socket && (events[i].events & EPOLLIN)) {
                 try_register_client(epoll_fd, server_local_socket);
             } else if (event_socket_fd == server_inet_socket && (events[i].events & EPOLLIN)) {
                 try_register_client(epoll_fd, server_inet_socket);
-            } else if ((events[i].events & EPOLLOUT) && operation != NULL) {
-                make_log("client with socked fd: %d ready to write to", events[i].data.fd);
-                Message message;
-                message.length = sizeof(*operation);
-                message.type = OPERATION_REQ_MSG;
-                operation->client_id = event_socket_fd;
-                if (send_message(event_socket_fd, &message, operation) == -1) {
-                    make_log("Error: server sending operation to client", 0);
-                } else {
-                    free(operation);
-                    operation = NULL;
-                };
-            } else if (events[i].events & EPOLLIN){
+            } else if (events[i].events & EPOLLOUT) {
+                Client *client;
+                if ((client = find_client(event_socket_fd)) != NULL) {
+                    client->active = 1;
+                    make_log("client with socked fd: %d ready to write to", events[i].data.fd);
+                }
+            }
+            if (events[i].events & EPOLLIN){
                 make_log("client with socked fd: %d ready to read from", event_socket_fd);
                 Message message;
-                Operation *result = NULL;
-                if ((result = receive_message(event_socket_fd, &message)) == NULL) {
-                    //todo clients should be closed by ping thread
-                    shutdown(event_socket_fd, SHUT_RDWR);
-                    close(event_socket_fd);
-                } else {
+                Operation *result;
+                if ((result = receive_message(event_socket_fd, &message)) != NULL) {
                     char buf[128];
-                    char *client_name;
+                    Client *client;
                     to_string(result, buf);
-                    if ((client_name = find_client_name(result->client_id)) == NULL) {
+                    if ((client = find_client(result->client_id)) == NULL) {
                         printf("result of %d. %s = %lf from unknown\n", result->operation_id, buf,
                                result->result);
                     } else {
                         printf("result of %d. %s = %lf from %d. %s\n", result->operation_id, buf,
-                               result->result, result->client_id, client_name);
+                               result->result, result->client_id, client->name);
                     }
                     make_log("obtained result %d", (int) result->result);
                     make_log("obtained result id %d", result->operation_id);
@@ -267,7 +271,6 @@ void *startSocketThread(void *arg) {
                 }
             }
             else {
-                //todo loop pooling when operation == NULL
                 make_log("client ready - event %d", events[i].events);
             }
         }
@@ -276,10 +279,37 @@ void *startSocketThread(void *arg) {
     pthread_exit((void *) 0);
 }
 
-char *find_client_name(int id) {
+int try_send_operation(Operation *operation) {
+    if (operation == NULL) return -1;
+    int active[MAX_CLIENTS];
+    int active_iterator = 0;
     for (int i = 0; i < MAX_CLIENTS; ++i) {
-        if (clients_sockets[i] == id) {
-            return clients_names[i];
+        if (clients[i] != NULL && clients[i]->active) {
+            active[active_iterator] = i;
+            ++active_iterator;
+        }
+    }
+    if (active_iterator != 0) {
+        int rand_active = rand() % active_iterator;
+        int client_socket_id = clients[active[rand_active]]->socket_fd;
+        Message message;
+        message.length = sizeof(*operation);
+        message.type = OPERATION_REQ_MSG;
+        operation->client_id = client_socket_id;
+        make_log("Server sending operation to client %d", client_socket_id);
+        if (send_message(client_socket_id, &message, operation) == -1) {
+            make_log("Error: server sending operation to client", 0);
+            return -1;
+        }
+        return 1;
+    }
+    return -1;
+}
+
+Client *find_client(int socket_fd) {
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        if (clients[i] != NULL && clients[i]->socket_fd == socket_fd) {
+            return clients[i];
         }
     }
     return NULL;
@@ -304,22 +334,26 @@ int try_register_client(int epoll_fd, int server_socket) {
     if ((name = receive_message(client_socket_fd, &message)) == NULL) {
         make_log("Error receiving client name", 0);
         perror("Error receiving client name");
+        free(name);
         return -1;
     };
     if (name_available(name) == -1) {
         char *msg_buf = "not registered";
         message.length = (short) (strlen(msg_buf) + 1);
         send_message(client_socket_fd, &message, msg_buf);
+        free(name);
         return -1;
     }
     char *msg_buf = "registered";
     message.length = (short) (strlen(msg_buf) + 1);
     send_message(client_socket_fd, &message, msg_buf);
-    clients_sockets[slot_index] = client_socket_fd;
-    clients_names[slot_index] = name;
+    clients[slot_index] = malloc(sizeof(*clients));
+    clients[slot_index]->socket_fd = client_socket_fd;
+    clients[slot_index]->name = name;
+    clients[slot_index]->active = 0;
 
     struct epoll_event event;
-    event.events = EPOLLIN | EPOLLOUT;
+    event.events = EPOLLIN | EPOLLOUT | EPOLLET;
     event.data.fd = client_socket_fd;
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_socket_fd, &event) == -1) {
         make_log("Error epoll_ctl add", 0);
@@ -332,7 +366,7 @@ int try_register_client(int epoll_fd, int server_socket) {
 
 int name_available(char *name) {
     for (int i = 0; i < MAX_CLIENTS; ++i) {
-        if (clients_names[i] != NULL && strcmp(clients_names[i], name) == 0) {
+        if (clients[i] != NULL && strcmp(clients[i]->name, name) == 0) {
             return -1;
         }
     }
@@ -341,7 +375,7 @@ int name_available(char *name) {
 
 int find_slot() {
     for (int i = 0; i < MAX_CLIENTS; ++i) {
-        if (clients_names[i] == NULL) {
+        if (clients[i] == NULL) {
             return i;
         }
     }
@@ -407,10 +441,13 @@ int setup_server_inet_socket(int epoll_fd) {
     return server_inet_socket;
 }
 
+int end = 1;
 void *startPingThread(void *arg) {
     pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
     make_log("ping: started", 0);
+    while (end) {
 
+    }
     make_log("ping: exited", 0);
     pthread_exit((void *) 0);
 }

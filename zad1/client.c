@@ -80,6 +80,8 @@ void wait_for_requests(int server_socket_id) {
             if (send_message(server_socket_id, &message, &result) == -1) {
                 make_log("Error: client could not sent back result of operation %d", result.operation_id);
                 fprintf(stderr, "Error: client could not sent back result of operation %d\n", result.operation_id);
+            } else {
+                make_log("Client sent message %d", operation->operation_id);
             };
             free(operation);
         }

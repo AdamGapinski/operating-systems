@@ -84,7 +84,7 @@ int send_message(int socket_fd, Message *message, void *data) {
 void data_logging(int data_type, void *data) {
     char *text;
     Operation *operation;
-    make_log("SENDING: ", 0);
+    make_log("SENDING | RECEIVING", 0);
     switch (data_type) {
         case NAME_REQ_MSG:
         case NAME_RES_MSG:

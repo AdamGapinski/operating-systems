@@ -47,6 +47,8 @@ Operation *receive_result() ;
 
 void enqueue_result(double result, int operation_id, int client_id);
 
+void to_string(Operation *operation, char *buf) ;
+
 in_port_t port;
 char *path;
 char **clients_names;
@@ -101,15 +103,9 @@ void *startTerminalThread(void *arg) {
     pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
     make_log("terminal: started", 0);
     while (1) {
-        Operation *result;
-        while ((result = receive_result()) != NULL) {
-            printf("result of %d operation: %f from %d client\n", result->operation_id,
-                   result->result, result->client_id);
-        }
         int option = read_option();
         if (option > 0 && option < 5) {
             schedule_operation(option);
-            make_log("scheduled operation %d", operation_counter);
         } else if (option == 5) {
             //todo cancel the other threads
             printf("exit");
@@ -120,14 +116,6 @@ void *startTerminalThread(void *arg) {
     }
     make_log("terminal: exited", 0);
     pthread_exit((void *) 0);
-}
-
-Operation *receive_result() {
-    pthread_mutex_lock(&result_queue_mutex);
-    Operation *result = dequeue(results);
-    pthread_cond_signal(&result_queue_cond_not_full);
-    pthread_mutex_unlock(&result_queue_mutex);
-    return result;
 }
 
 int read_option() {
@@ -148,6 +136,10 @@ void schedule_operation(int option) {
     scanf("%lf", &first_arg);
     printf("operation second argument:\n");
     scanf("%lf", &second_arg);
+    if (option == DIVISION && second_arg == 0) {
+        printf("Division by zero not supported\n");
+        return;
+    }
     ++operation_counter;
     Operation *operation = init_operation(option, first_arg, second_arg, -1, operation_counter);
     pthread_mutex_lock(&queue_mutex);
@@ -156,7 +148,21 @@ void schedule_operation(int option) {
     };
     pthread_cond_signal(&queue_cond);
     pthread_mutex_unlock(&queue_mutex);
-    printf("Operation %d. scheduled\n", operation->operation_id);
+    char buf[50];
+    to_string(operation, buf);
+    printf("Operation %d. scheduled: %s\n", operation->operation_id, buf);
+}
+
+void to_string(Operation *operation, char *buf) {
+    char sign;
+    switch(operation->operation) {
+        case ADDITION: sign = '+'; break;
+        case SUBTRACTION: sign = '-'; break;
+        case MULTIPLICATION: sign = '*'; break;
+        case DIVISION: sign = '/'; break;
+        default: sign = 'Q';break;
+    }
+    sprintf(buf, "%.3lf %c %.3lf", operation->first_argument, sign, operation->second_argument);
 }
 
 void *startSocketThread(void *arg) {
@@ -226,7 +232,7 @@ void *startSocketThread(void *arg) {
                 if ((result = receive_message(event_socket_fd, &message)) == NULL) {
                     make_log("Error: server receiving operation result from client", 0);
                 } else {
-                    enqueue_result(result->result, result->operation_id, event_socket_fd);
+                    printf("result of %d: %lf\n", result->operation_id, result->result);
                     make_log("obtained result %d", (int) result->result);
                     make_log("obtained result id %d", result->operation_id);
                     free(result);
@@ -239,18 +245,6 @@ void *startSocketThread(void *arg) {
     }
     make_log("socket: exited", 0);
     pthread_exit((void *) 0);
-}
-
-void enqueue_result(double result, int operation_id, int client_id) {
-    pthread_mutex_lock(&result_queue_mutex);
-    if (queue_full(results) == 1) {
-        pthread_cond_wait(&result_queue_cond_not_full, &result_queue_mutex);
-    }
-    Operation *operation = init_operation(-1, -1, -1, client_id, operation_id);
-    operation->result = result;
-    enqueue(results, operation);
-    pthread_cond_signal(&result_queue_cond);
-    pthread_mutex_unlock(&result_queue_mutex);
 }
 
 int try_register_client(int epoll_fd, int server_socket) {

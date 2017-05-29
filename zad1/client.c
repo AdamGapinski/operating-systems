@@ -4,19 +4,24 @@
 #include <stdlib.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <unistd.h>
 #include <endian.h>
 #include <float.h>
 #include "include/utils.h"
 #include "include/queue.h"
+#define _BSD_SOURCE
 
 int validate_domain(char *domain);
 
-int connect_to_server(char *socket_path) ;
+int connect_local(char *socket_path) ;
 
 void wait_for_requests(int server_socket_id);
 
 int solve_operation(Operation *operation, Operation *result) ;
+
+int connect_inet(char *address, int port) ;
 
 int main(int argc, char *argv[]) {
     char *client_name = parseTextArg(argc, argv, 1, "client name");
@@ -26,33 +31,36 @@ int main(int argc, char *argv[]) {
     }
     char *domain = parseTextArg(argc, argv, 2, "domain: unix or inet");
     int domain_option = validate_domain(domain);
+    int server_socket_fd = 0;
     if (domain_option == 0) {
         char *socket_path = parseTextArg(argc, argv, 3, "unix socket path");
-        int server_socket_fd = connect_to_server(socket_path);
-        Message message;
-        message.type = NAME_REQ_MSG;
-        message.length = (short) (strlen(client_name) + 1);
-        if (send_message(server_socket_fd, &message, client_name) == -1) exit(EXIT_FAILURE);
-        char *response;
-        if ((response = receive_message(server_socket_fd, &message)) == NULL) exit(EXIT_FAILURE);
-        if (strcmp(response, "registered") == 0) {
-            free(response);
-            wait_for_requests(server_socket_fd);
-        } else if (strcmp(response, "not registered") == 0) {
-            make_log("Error: client could not get registered", 0);
-            fprintf(stderr, "Error: client could not get registered\n");
-            exit(EXIT_FAILURE);
-        } else {
-            make_log("Error: Client does not recognize server response", 0);
-            fprintf(stderr, "Error: Client does not recognize server response\n");
-            exit(EXIT_FAILURE);
-        }
-        exit(EXIT_SUCCESS);
+        server_socket_fd = connect_local(socket_path);
     } else if (domain_option == 1){
         char *address = parseTextArg(argc, argv, 3, "IPv4 address");
         int port = parseUnsignedIntArg(argc, argv, 4, "port number");
-
+        server_socket_fd = connect_inet(address, port);
     }
+
+    Message message;
+    message.type = NAME_REQ_MSG;
+    message.length = (short) (strlen(client_name) + 1);
+    if (send_message(server_socket_fd, &message, client_name) == -1) exit(EXIT_FAILURE);
+    char *response;
+    if ((response = receive_message(server_socket_fd, &message)) == NULL) exit(EXIT_FAILURE);
+    if (strcmp(response, "registered") == 0) {
+        free(response);
+        wait_for_requests(server_socket_fd);
+    } else if (strcmp(response, "not registered") == 0) {
+        make_log("Error: client could not get registered", 0);
+        fprintf(stderr, "Error: client could not get registered\n");
+        exit(EXIT_FAILURE);
+    } else {
+        make_log("Error: Client does not recognize server response", 0);
+        fprintf(stderr, "Error: Client does not recognize server response\n");
+        exit(EXIT_FAILURE);
+    }
+    exit(EXIT_SUCCESS);
+
     return 0;
 }
 
@@ -106,12 +114,31 @@ int solve_operation(Operation *operation, Operation *result) {
     return 0;
 }
 
-int connect_to_server(char *socket_path) {
+int connect_local(char *socket_path) {
     int socket_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     struct sockaddr_un address;
     memset(&address, 0, sizeof(struct sockaddr_un));
     address.sun_family = AF_UNIX;
     strcpy(address.sun_path, socket_path);
+    if (connect(socket_fd, (struct sockaddr *) &address, sizeof(address)) == -1) {
+        perror("Connection error");
+        exit(EXIT_FAILURE);
+    }
+    return socket_fd;
+}
+
+int connect_inet(char *ipv4_address, int port) {
+    int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in address;
+    memset(&address, 0, sizeof(struct sockaddr_in));
+    address.sin_family = AF_INET;
+    address.sin_port = htobe16((in_port_t) port);
+    struct in_addr iadr;
+    if (inet_aton(ipv4_address, &iadr) == 0) {
+        fprintf(stderr, "Error: invalid address\n");
+        exit(EXIT_FAILURE);
+    }
+    address.sin_addr = iadr;
     if (connect(socket_fd, (struct sockaddr *) &address, sizeof(address)) == -1) {
         perror("Connection error");
         exit(EXIT_FAILURE);

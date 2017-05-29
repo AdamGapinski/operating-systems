@@ -138,12 +138,10 @@ void *handle_recv_res(int received, int data_len, void *data, int data_type) {
         return data;
     } else if (received == 0) {
         make_log("receiving error - connection closed", 0);
-        fprintf(stderr, "receiving error - connection closed\n");
         return NULL;
     }
     else {
         make_log("receiving error", 0);
-        perror("receiving error");
         return NULL;
     }
 }

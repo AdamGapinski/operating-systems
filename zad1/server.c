@@ -10,6 +10,7 @@
 #include <netinet/in.h>
 #include <endian.h>
 #include <arpa/inet.h>
+#include <limits.h>
 #include "include/utils.h"
 #include "include/queue.h"
 
@@ -205,36 +206,31 @@ void *startSocketThread(void *arg) {
         if (queue_empty(operations) == 1) {
             struct timespec ts;
             clock_gettime(CLOCK_REALTIME, &ts);
-            ts.tv_nsec += 10000;
+            ts.tv_nsec += 100000;
             pthread_cond_timedwait(&queue_cond, &queue_mutex, &ts);
         }
         operation = dequeue(operations);
         pthread_cond_signal(&queue_cond_not_full);
         pthread_mutex_unlock(&queue_mutex);
 
-        //todo remove this log
-        make_log("socket epoll_wait", 0);
         if ((waited_fds_num = epoll_wait(epoll_fd, events, MAX_CLIENTS, -1)) == -1) {
             make_log("Error epoll_wait", 0);
             perror("Error epoll_wait");
             exit(EXIT_FAILURE);
         }
-        //todo remove this log
-        make_log("socket epoll_waited %d", waited_fds_num);
         for (int i = 0; i < waited_fds_num; ++i) {
             int event_socket_fd = events[i].data.fd;
             if (((events[i].events & EPOLLERR) ||
                     (events[i].events & EPOLLHUP)) &&
                     (events[i].events & EPOLLIN) == 0) {
-                make_log("Error: client connection", 0);
-                fprintf(stderr, "Error: client connection\n");
+                //todo clients should be closed by ping thread
                 shutdown(event_socket_fd, SHUT_RDWR);
                 close(event_socket_fd);
             } else if (event_socket_fd == server_local_socket && (events[i].events & EPOLLIN)) {
                 try_register_client(epoll_fd, server_local_socket);
             } else if (event_socket_fd == server_inet_socket && (events[i].events & EPOLLIN)) {
                 try_register_client(epoll_fd, server_inet_socket);
-            } else if ((events[i].events & EPOLLOUT) && operation != NULL){
+            } else if ((events[i].events & EPOLLOUT) && operation != NULL) {
                 make_log("client with socked fd: %d ready to write to", events[i].data.fd);
                 Message message;
                 message.length = sizeof(*operation);
@@ -246,12 +242,14 @@ void *startSocketThread(void *arg) {
                     free(operation);
                     operation = NULL;
                 };
-            } else if ((events[i].events & EPOLLIN) != 0){
+            } else if (events[i].events & EPOLLIN){
                 make_log("client with socked fd: %d ready to read from", event_socket_fd);
                 Message message;
                 Operation *result = NULL;
                 if ((result = receive_message(event_socket_fd, &message)) == NULL) {
-                    make_log("Error: server receiving operation result from client", 0);
+                    //todo clients should be closed by ping thread
+                    shutdown(event_socket_fd, SHUT_RDWR);
+                    close(event_socket_fd);
                 } else {
                     char buf[128];
                     char *client_name;
@@ -269,7 +267,8 @@ void *startSocketThread(void *arg) {
                 }
             }
             else {
-                make_log("client with socked fd: %d ready", events[i].data.fd);
+                //todo loop pooling when operation == NULL
+                make_log("client ready - event %d", events[i].events);
             }
         }
     }

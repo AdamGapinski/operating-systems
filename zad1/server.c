@@ -43,6 +43,10 @@ int find_slot() ;
 
 int name_available(char *name);
 
+Operation *receive_result() ;
+
+void enqueue_result(double result, int operation_id, int client_id);
+
 in_port_t port;
 char *path;
 char **clients_names;
@@ -54,14 +58,20 @@ pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t queue_cond_not_full = PTHREAD_COND_INITIALIZER;
 pthread_cond_t queue_cond = PTHREAD_COND_INITIALIZER;
 
+Queue *results;
+pthread_mutex_t result_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t result_queue_cond_not_full = PTHREAD_COND_INITIALIZER;
+pthread_cond_t result_queue_cond = PTHREAD_COND_INITIALIZER;
+
 int main(int argc, char *argv[]) {
-    port = (in_port_t) parseUnsignedIntArg(argc, argv, 1, "UDP port number");
+    port = (in_port_t) parseUnsignedIntArg(argc, argv, 1, "TCP port number");
     path = parseTextArg(argc, argv, 2, "Unix local socket path");
     if (strlen(path) >= UNIX_PATH_MAX) {
         fprintf(stderr, "Argument validation error - socket path too long: %s, max %d\n", path, UNIX_PATH_MAX - 1);
         exit(EXIT_FAILURE);
     }
     operations = init_queue(queue_size);
+    results = init_queue(queue_size);
     init_clients_array();
     make_log("\t\t\tserver started", 0);
     start_threads();
@@ -91,6 +101,11 @@ void *startTerminalThread(void *arg) {
     pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
     make_log("terminal: started", 0);
     while (1) {
+        Operation *result;
+        while ((result = receive_result()) != NULL) {
+            printf("result of %d operation: %f from %d client\n", result->operation_id,
+                   result->result, result->client_id);
+        }
         int option = read_option();
         if (option > 0 && option < 5) {
             schedule_operation(option);
@@ -105,6 +120,14 @@ void *startTerminalThread(void *arg) {
     }
     make_log("terminal: exited", 0);
     pthread_exit((void *) 0);
+}
+
+Operation *receive_result() {
+    pthread_mutex_lock(&result_queue_mutex);
+    Operation *result = dequeue(results);
+    pthread_cond_signal(&result_queue_cond_not_full);
+    pthread_mutex_unlock(&result_queue_mutex);
+    return result;
 }
 
 int read_option() {
@@ -131,7 +154,9 @@ void schedule_operation(int option) {
     if (enqueue(operations, operation) == -1) {
         pthread_cond_wait(&queue_cond_not_full, &queue_mutex);
     };
+    pthread_cond_signal(&queue_cond);
     pthread_mutex_unlock(&queue_mutex);
+    printf("Operation %d. scheduled\n", operation->operation_id);
 }
 
 void *startSocketThread(void *arg) {
@@ -150,38 +175,58 @@ void *startSocketThread(void *arg) {
     int waited_fds_num;
 
     while (1) {
+        pthread_mutex_lock(&queue_mutex);
+        if (queue_empty(operations) == 1) {
+            struct timespec ts;
+            clock_gettime(CLOCK_REALTIME, &ts);
+            ts.tv_nsec += 10000;
+            pthread_cond_timedwait(&queue_cond, &queue_mutex, &ts);
+        }
+        operation = dequeue(operations);
+        pthread_cond_signal(&queue_cond_not_full);
+        pthread_mutex_unlock(&queue_mutex);
+
+        //todo remove this log
         make_log("socket epoll_wait", 0);
         if ((waited_fds_num = epoll_wait(epoll_fd, events, MAX_CLIENTS, -1)) == -1) {
             make_log("Error epoll_wait", 0);
             perror("Error epoll_wait");
             exit(EXIT_FAILURE);
         }
+        //todo remove this log
         make_log("socket epoll_waited %d", waited_fds_num);
         for (int i = 0; i < waited_fds_num; ++i) {
             int event_socket_fd = events[i].data.fd;
-            if (event_socket_fd == server_local_socket) {
+            if (((events[i].events & EPOLLERR) ||
+                    (events[i].events & EPOLLHUP)) &&
+                    (events[i].events & EPOLLIN) == 0) {
+                make_log("Error: client connection", 0);
+                fprintf(stderr, "Error: client connection\n");
+                shutdown(event_socket_fd, SHUT_RDWR);
+                close(event_socket_fd);
+            } else if (event_socket_fd == server_local_socket && (events[i].events & EPOLLIN)) {
                 try_register_client(epoll_fd, server_local_socket);
-            } else if (event_socket_fd == server_inet_socket) {
+            } else if (event_socket_fd == server_inet_socket && (events[i].events & EPOLLIN)) {
                 try_register_client(epoll_fd, server_inet_socket);
-            } else if ((events[i].events & EPOLLOUT) != 0 && operation != NULL){
+            } else if ((events[i].events & EPOLLOUT) && operation != NULL){
                 make_log("client with socked fd: %d ready to write to", events[i].data.fd);
                 Message message;
                 message.length = sizeof(*operation);
                 message.type = OPERATION_REQ_MSG;
-                if (send_message(events[i].data.fd, &message, operation) == -1) {
+                if (send_message(event_socket_fd, &message, operation) == -1) {
                     make_log("Error: server sending operation to client", 0);
                 } else {
                     free(operation);
                     operation = NULL;
                 };
             } else if ((events[i].events & EPOLLIN) != 0){
-                make_log("client with socked fd: %d ready to read from", events[i].data.fd);
+                make_log("client with socked fd: %d ready to read from", event_socket_fd);
                 Message message;
                 OperationResult *result = NULL;
-                if ((result = receive_message(events[i].data.fd, &message)) == NULL) {
+                if ((result = receive_message(event_socket_fd, &message)) == NULL) {
                     make_log("Error: server receiving operation result from client", 0);
                 } else {
-                    printf("result of %d: %f\n", result->operation_id, result->result);
+                    enqueue_result(result->result, result->operation_id, event_socket_fd);
                     make_log("obtained result %d", (int) result->result);
                     make_log("obtained result id %d", result->operation_id);
                     free(result);
@@ -191,21 +236,21 @@ void *startSocketThread(void *arg) {
                 make_log("client with socked fd: %d ready", events[i].data.fd);
             }
         }
-
-        pthread_mutex_lock(&queue_mutex);
-        if (queue_empty(operations) == 1) {
-            struct timespec ts;
-            clock_gettime(CLOCK_REALTIME, &ts);
-            ts.tv_sec += 1;
-            pthread_cond_timedwait(&queue_cond, &queue_mutex, &ts);
-        }
-        operation = dequeue(operations);
-        pthread_cond_signal(&queue_cond_not_full);
-        pthread_mutex_unlock(&queue_mutex);
-        if (operation != NULL) make_log("processing operation %d", operation->operation_id);
     }
     make_log("socket: exited", 0);
     pthread_exit((void *) 0);
+}
+
+void enqueue_result(double result, int operation_id, int client_id) {
+    pthread_mutex_lock(&result_queue_mutex);
+    if (queue_full(results) == 1) {
+        pthread_cond_wait(&result_queue_cond_not_full, &result_queue_mutex);
+    }
+    Operation *operation = init_operation(-1, -1, -1, client_id, operation_id);
+    operation->result = result;
+    enqueue(results, operation);
+    pthread_cond_signal(&result_queue_cond);
+    pthread_mutex_unlock(&result_queue_mutex);
 }
 
 int try_register_client(int epoll_fd, int server_socket) {
@@ -290,7 +335,7 @@ int setup_server_local_socket(int epoll_fd) {
         exit(EXIT_FAILURE);
     }
     struct epoll_event event;
-    event.events = EPOLLIN;
+    event.events = EPOLLIN | EPOLLET;
     event.data.fd = server_local_socket;
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_local_socket, &event) == -1) {
         perror("Error epoll_ctl add");
@@ -321,7 +366,7 @@ int setup_server_inet_socket(int epoll_fd) {
         exit(EXIT_FAILURE);
     }
     struct epoll_event event;
-    event.events = EPOLLIN;
+    event.events = EPOLLIN | EPOLLET;
     event.data.fd = server_inet_socket;
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_inet_socket, &event) == -1) {
         perror("Error epoll_ctl add");

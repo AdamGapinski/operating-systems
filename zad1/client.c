@@ -16,7 +16,7 @@ int connect_to_server(char *socket_path) ;
 
 void wait_for_requests(int server_socket_id);
 
-int solve_operation(Operation *operation, OperationResult *result) ;
+int solve_operation(Operation *operation, Operation *result) ;
 
 int main(int argc, char *argv[]) {
     char *client_name = parseTextArg(argc, argv, 1, "client name");
@@ -56,14 +56,17 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
-int end = 1;
 void wait_for_requests(int server_socket_id) {
     Message message;
     Operation *operation;
-    OperationResult result;
-    while (end) {
-        if ((operation = (Operation *) (receive_message(server_socket_id, &message))) != NULL &&
-                solve_operation(operation, &result) == 0) {
+    Operation result;
+    while ((operation = (Operation *) (receive_message(server_socket_id, &message)))) {
+        if (solve_operation(operation, &result) == 0) {
+            result.operation_id = operation->operation_id;
+            result.first_argument = operation->first_argument;
+            result.second_argument = operation->second_argument;
+            result.client_id = operation->client_id;
+            result.operation = operation->operation;
             message.length = sizeof(result);
             message.type = OPERATION_RES_MSG;
             if (send_message(server_socket_id, &message, &result) == -1) {
@@ -71,12 +74,11 @@ void wait_for_requests(int server_socket_id) {
                 fprintf(stderr, "Error: client could not sent back result of operation %d\n", result.operation_id);
             };
             free(operation);
-        };
+        }
     }
 }
 
-int solve_operation(Operation *operation, OperationResult *result) {
-    result->operation_id = operation->operation_id;
+int solve_operation(Operation *operation, Operation *result) {
     switch (operation->operation) {
         case ADDITION:
             result->result = operation->first_argument + operation->second_argument;
@@ -107,7 +109,7 @@ int solve_operation(Operation *operation, OperationResult *result) {
 int connect_to_server(char *socket_path) {
     int socket_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     struct sockaddr_un address;
-    memset(&address, 0, sizeof(address));
+    memset(&address, 0, sizeof(struct sockaddr_un));
     address.sun_family = AF_UNIX;
     strcpy(address.sun_path, socket_path);
     if (connect(socket_fd, (struct sockaddr *) &address, sizeof(address)) == -1) {

@@ -84,7 +84,6 @@ int send_message(int socket_fd, Message *message, void *data) {
 void data_logging(int data_type, void *data) {
     char *text;
     Operation *operation;
-    OperationResult *operation_result;
     make_log("SENDING: ", 0);
     switch (data_type) {
         case NAME_REQ_MSG:
@@ -93,17 +92,13 @@ void data_logging(int data_type, void *data) {
             make_log(text, 0);
             break;
         case OPERATION_REQ_MSG:
+        case OPERATION_RES_MSG:
             operation = data;
             make_log("operation: first argument %d", (int) operation->first_argument);
             make_log("operation: second argument %d", (int) operation->second_argument);
             make_log("operation: operation %d", operation->operation);
             make_log("operation: operation ID %d", operation->operation_id);
             make_log("operation: client_id %d", operation->client_id);
-            break;
-        case OPERATION_RES_MSG:
-            operation_result = data;
-            make_log("operation result: result %d", (int) operation_result->result);
-            make_log("operation result: operation_id %d", operation_result->operation_id);
             break;
         default:
             make_log("unsupported operation type: %d", data_type);
@@ -119,7 +114,6 @@ void *receive_message(int socket_fd, Message *message) {
 
     char *text;
     Operation *operation;
-    OperationResult *operation_result;
     switch(message->type) {
         case NAME_REQ_MSG:
         case NAME_RES_MSG:
@@ -127,13 +121,10 @@ void *receive_message(int socket_fd, Message *message) {
             received = (int) recv(socket_fd, text, (size_t) message->length, 0);
             return handle_recv_res(received, message->length, text, message->type);
         case OPERATION_REQ_MSG:
+        case OPERATION_RES_MSG:
             operation = calloc((size_t) message->length, 1);
             received = (int) recv(socket_fd, operation, (size_t) message->length, 0);
             return handle_recv_res(received, message->length, operation, message->type);
-        case OPERATION_RES_MSG:
-            operation_result = calloc((size_t) message->length, 1);
-            received = (int) recv(socket_fd, operation_result, (size_t) message->length, 0);
-            return handle_recv_res(received, message->length, operation_result, message->type);
         default:
             make_log("receiving error - invalid data type", 0);
             perror("receiving error - invalid data type");
@@ -145,7 +136,12 @@ void *handle_recv_res(int received, int data_len, void *data, int data_type) {
     if (received == data_len) {
         if (data_type != -1) data_logging(data_type, data);
         return data;
-    } else {
+    } else if (received == 0) {
+        make_log("receiving error - connection closed", 0);
+        fprintf(stderr, "receiving error - connection closed\n");
+        return NULL;
+    }
+    else {
         make_log("receiving error", 0);
         perror("receiving error");
         return NULL;

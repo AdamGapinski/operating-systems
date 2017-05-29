@@ -7,17 +7,13 @@
 #define DIVISION 4
 
 typedef struct Operation {
-    int operation;
     double first_argument;
     double second_argument;
+    double result;
+    int operation;
     int client_id;
     int operation_id;
 } Operation;
-
-typedef struct OperationResult {
-    double result;
-    int operation_id;
-} OperationResult;
 
 typedef struct Queue {
     int head;

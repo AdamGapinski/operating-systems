@@ -43,11 +43,9 @@ int find_slot() ;
 
 int name_available(char *name);
 
-Operation *receive_result() ;
-
-void enqueue_result(double result, int operation_id, int client_id);
-
 void to_string(Operation *operation, char *buf) ;
+
+char *find_client_name(int id);
 
 in_port_t port;
 char *path;
@@ -60,11 +58,6 @@ pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t queue_cond_not_full = PTHREAD_COND_INITIALIZER;
 pthread_cond_t queue_cond = PTHREAD_COND_INITIALIZER;
 
-Queue *results;
-pthread_mutex_t result_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t result_queue_cond_not_full = PTHREAD_COND_INITIALIZER;
-pthread_cond_t result_queue_cond = PTHREAD_COND_INITIALIZER;
-
 int main(int argc, char *argv[]) {
     port = (in_port_t) parseUnsignedIntArg(argc, argv, 1, "TCP port number");
     path = parseTextArg(argc, argv, 2, "Unix local socket path");
@@ -73,7 +66,6 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
     operations = init_queue(queue_size);
-    results = init_queue(queue_size);
     init_clients_array();
     make_log("\t\t\tserver started", 0);
     start_threads();
@@ -108,7 +100,7 @@ void *startTerminalThread(void *arg) {
             schedule_operation(option);
         } else if (option == 5) {
             //todo cancel the other threads
-            printf("exit");
+            printf("exited\n");
             break;
         } else {
             printf("unsupported operation\n");
@@ -119,23 +111,51 @@ void *startTerminalThread(void *arg) {
 }
 
 int read_option() {
-    printf("Chose operation:\n");
-    printf("1. addition\n");
-    printf("2. subtraction\n");
-    printf("3. multiplication\n");
-    printf("4. division\n");
-    printf("5. stop server\n");
-    int option = 0;
-    scanf("%d", &option);
+    int option;
+    int result;
+    do {
+        printf("Chose operation:\n");
+        printf("1. addition\n");
+        printf("2. subtraction\n");
+        printf("3. multiplication\n");
+        printf("4. division\n");
+        printf("5. stop server\n");
+        option = 0;
+        result = scanf("%d", &option);
+        if (result == EOF) {
+            fprintf(stderr, "stdin EOF\n");
+            exit(EXIT_FAILURE);
+        }
+        if (result == 0) {
+            printf("Invalid input\n");
+            while (fgetc(stdin) != '\n');
+        };
+    } while(result == 0 || result == EOF);
     return option;
+}
+
+int read_argument(char *info) {
+    int argument;
+    int result;
+    do {
+        printf("%s\n", info);
+        result = scanf("%d", &argument);
+        if (result == EOF) {
+            fprintf(stderr, "stdin EOF\n");
+            exit(EXIT_FAILURE);
+        }
+        if (result == 0) {
+            printf("Invalid input\n");
+            while (fgetc(stdin) != '\n');
+        };
+    } while(result == 0 || result == EOF);
+    return argument;
 }
 
 void schedule_operation(int option) {
     double first_arg, second_arg;
-    printf("operation first argument:\n");
-    scanf("%lf", &first_arg);
-    printf("operation second argument:\n");
-    scanf("%lf", &second_arg);
+    first_arg = read_argument("operation first argument");
+    second_arg = read_argument("operation second argument");
     if (option == DIVISION && second_arg == 0) {
         printf("Division by zero not supported\n");
         return;
@@ -148,7 +168,7 @@ void schedule_operation(int option) {
     };
     pthread_cond_signal(&queue_cond);
     pthread_mutex_unlock(&queue_mutex);
-    char buf[50];
+    char buf[128];
     to_string(operation, buf);
     printf("Operation %d. scheduled: %s\n", operation->operation_id, buf);
 }
@@ -160,7 +180,7 @@ void to_string(Operation *operation, char *buf) {
         case SUBTRACTION: sign = '-'; break;
         case MULTIPLICATION: sign = '*'; break;
         case DIVISION: sign = '/'; break;
-        default: sign = 'Q';break;
+        default: sign = '#';break;
     }
     sprintf(buf, "%.3lf %c %.3lf", operation->first_argument, sign, operation->second_argument);
 }
@@ -219,6 +239,7 @@ void *startSocketThread(void *arg) {
                 Message message;
                 message.length = sizeof(*operation);
                 message.type = OPERATION_REQ_MSG;
+                operation->client_id = event_socket_fd;
                 if (send_message(event_socket_fd, &message, operation) == -1) {
                     make_log("Error: server sending operation to client", 0);
                 } else {
@@ -228,11 +249,20 @@ void *startSocketThread(void *arg) {
             } else if ((events[i].events & EPOLLIN) != 0){
                 make_log("client with socked fd: %d ready to read from", event_socket_fd);
                 Message message;
-                OperationResult *result = NULL;
+                Operation *result = NULL;
                 if ((result = receive_message(event_socket_fd, &message)) == NULL) {
                     make_log("Error: server receiving operation result from client", 0);
                 } else {
-                    printf("result of %d: %lf\n", result->operation_id, result->result);
+                    char buf[128];
+                    char *client_name;
+                    to_string(result, buf);
+                    if ((client_name = find_client_name(result->client_id)) == NULL) {
+                        printf("result of %d. %s = %lf from unknown\n", result->operation_id, buf,
+                               result->result);
+                    } else {
+                        printf("result of %d. %s = %lf from %d. %s\n", result->operation_id, buf,
+                               result->result, result->client_id, client_name);
+                    }
                     make_log("obtained result %d", (int) result->result);
                     make_log("obtained result id %d", result->operation_id);
                     free(result);
@@ -245,6 +275,15 @@ void *startSocketThread(void *arg) {
     }
     make_log("socket: exited", 0);
     pthread_exit((void *) 0);
+}
+
+char *find_client_name(int id) {
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        if (clients_sockets[i] == id) {
+            return clients_names[i];
+        }
+    }
+    return NULL;
 }
 
 int try_register_client(int epoll_fd, int server_socket) {

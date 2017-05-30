@@ -10,7 +10,7 @@ typedef struct Operation {
     double first_argument;
     double second_argument;
     double result;
-    int operation;
+    int operation_type;
     int client_id;
     int operation_id;
 } Operation;

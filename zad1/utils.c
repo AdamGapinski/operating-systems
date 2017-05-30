@@ -96,7 +96,7 @@ void data_logging(int data_type, void *data) {
             operation = data;
             make_log("operation: first argument %d", (int) operation->first_argument);
             make_log("operation: second argument %d", (int) operation->second_argument);
-            make_log("operation: operation %d", operation->operation);
+            make_log("operation: operation %d", operation->operation_type);
             make_log("operation: operation ID %d", operation->operation_id);
             make_log("operation: client_id %d", operation->client_id);
             break;

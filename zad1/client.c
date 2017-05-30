@@ -19,7 +19,7 @@ int connect_local(char *socket_path) ;
 
 void wait_for_requests(int server_socket_id);
 
-int solve_operation(Operation *operation, Operation *result) ;
+int get_result(Operation *operation, Operation *result) ;
 
 int connect_inet(char *address, int port) ;
 
@@ -60,8 +60,6 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
     exit(EXIT_SUCCESS);
-
-    return 0;
 }
 
 void wait_for_requests(int server_socket_id) {
@@ -69,12 +67,7 @@ void wait_for_requests(int server_socket_id) {
     Operation *operation;
     Operation result;
     while ((operation = (Operation *) (receive_message(server_socket_id, &message)))) {
-        if (solve_operation(operation, &result) == 0) {
-            result.operation_id = operation->operation_id;
-            result.first_argument = operation->first_argument;
-            result.second_argument = operation->second_argument;
-            result.client_id = operation->client_id;
-            result.operation = operation->operation;
+        if (get_result(operation, &result) == 0) {
             message.length = sizeof(result);
             message.type = OPERATION_RES_MSG;
             if (send_message(server_socket_id, &message, &result) == -1) {
@@ -88,8 +81,8 @@ void wait_for_requests(int server_socket_id) {
     }
 }
 
-int solve_operation(Operation *operation, Operation *result) {
-    switch (operation->operation) {
+int get_result(Operation *operation, Operation *result) {
+    switch (operation->operation_type) {
         case ADDITION:
             result->result = operation->first_argument + operation->second_argument;
             break;
@@ -109,10 +102,15 @@ int solve_operation(Operation *operation, Operation *result) {
             }
             break;
         default:
-            make_log("Error: invalid operation number %d", operation->operation);
-            fprintf(stderr, "Error: invalid operation number %d\n", operation->operation);
+            make_log("Error: invalid operation number %d", operation->operation_type);
+            fprintf(stderr, "Error: invalid operation number %d\n", operation->operation_type);
             return -1;
     }
+    result->operation_id = operation->operation_id;
+    result->first_argument = operation->first_argument;
+    result->second_argument = operation->second_argument;
+    result->client_id = operation->client_id;
+    result->operation_type = operation->operation_type;
     return 0;
 }
 

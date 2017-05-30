@@ -87,7 +87,6 @@ void data_logging(int data_type, void *data) {
     make_log("SENDING | RECEIVING", 0);
     switch (data_type) {
         case NAME_REQ_MSG:
-        case NAME_RES_MSG:
             text = data;
             make_log(text, 0);
             break;
@@ -100,6 +99,16 @@ void data_logging(int data_type, void *data) {
             make_log("operation: operation ID %d", operation->operation_id);
             make_log("operation: client_id %d", operation->client_id);
             break;
+        case PING_REQUEST:
+            make_log("Ping request", 0);
+            break;
+        case PING_RESPONSE:
+            make_log("Ping response", 0);
+            break;
+        case REGISTERED_RES_MSG:
+            make_log("client registered response", 0);
+        case NOT_REGISTERED_RES_MSG:
+            make_log("client not registered response", 0);
         default:
             make_log("unsupported operation type: %d", data_type);
             break;
@@ -108,15 +117,17 @@ void data_logging(int data_type, void *data) {
 
 void *receive_message(int socket_fd, Message *message) {
     int received = (int) recv(socket_fd, message, sizeof(*message), 0);
-    if (handle_recv_res(received, sizeof(*message), message, -1) == NULL) return NULL;
+    if (handle_recv_res(received, sizeof(*message), message, -1) == NULL) {
+        return NULL;
+    }
     message->type = be16toh(message->type);
     message->length = be16toh(message->length);
 
+    int *data;
     char *text;
     Operation *operation;
     switch(message->type) {
         case NAME_REQ_MSG:
-        case NAME_RES_MSG:
             text = calloc((size_t) message->length, 1);
             received = (int) recv(socket_fd, text, (size_t) message->length, 0);
             return handle_recv_res(received, message->length, text, message->type);
@@ -125,6 +136,12 @@ void *receive_message(int socket_fd, Message *message) {
             operation = calloc((size_t) message->length, 1);
             received = (int) recv(socket_fd, operation, (size_t) message->length, 0);
             return handle_recv_res(received, message->length, operation, message->type);
+        case PING_REQUEST:
+        case PING_RESPONSE:
+        case REGISTERED_RES_MSG:
+        case NOT_REGISTERED_RES_MSG:
+            data = malloc(sizeof(*data));
+            return handle_recv_res(0, message->length, data, message->type);
         default:
             make_log("receiving error - invalid data type", 0);
             perror("receiving error - invalid data type");

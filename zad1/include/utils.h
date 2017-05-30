@@ -9,7 +9,10 @@
 #define OPERATION_REQ_MSG 0
 #define OPERATION_RES_MSG 1
 #define NAME_REQ_MSG 2
-#define NAME_RES_MSG 3
+#define PING_REQUEST 3
+#define PING_RESPONSE 4
+#define REGISTERED_RES_MSG 5
+#define NOT_REGISTERED_RES_MSG 6
 
 typedef struct Message {
     short type;

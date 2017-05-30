@@ -17,11 +17,19 @@ int validate_domain(char *domain);
 
 int connect_local(char *socket_path) ;
 
-void wait_for_requests(int server_socket_id);
+void wait_for_requests();
 
 int get_result(Operation *operation, Operation *result) ;
 
 int connect_inet(char *address, int port) ;
+
+void handle_operation_request(void *received_data);
+
+void handle_ping_request();
+
+int try_register(char *client_name) ;
+
+int server_socket_fd = 0;
 
 int main(int argc, char *argv[]) {
     char *client_name = parseTextArg(argc, argv, 1, "client name");
@@ -31,7 +39,6 @@ int main(int argc, char *argv[]) {
     }
     char *domain = parseTextArg(argc, argv, 2, "domain: unix or inet");
     int domain_option = validate_domain(domain);
-    int server_socket_fd = 0;
     if (domain_option == 0) {
         char *socket_path = parseTextArg(argc, argv, 3, "unix socket path");
         server_socket_fd = connect_local(socket_path);
@@ -41,43 +48,87 @@ int main(int argc, char *argv[]) {
         server_socket_fd = connect_inet(address, port);
     }
 
-    Message message;
-    message.type = NAME_REQ_MSG;
-    message.length = (short) (strlen(client_name) + 1);
-    if (send_message(server_socket_fd, &message, client_name) == -1) exit(EXIT_FAILURE);
-    char *response;
-    if ((response = receive_message(server_socket_fd, &message)) == NULL) exit(EXIT_FAILURE);
-    if (strcmp(response, "registered") == 0) {
-        free(response);
-        wait_for_requests(server_socket_fd);
-    } else if (strcmp(response, "not registered") == 0) {
-        make_log("Error: client could not get registered", 0);
+    if (try_register(client_name) == 0) {
+        printf("Client registered with name %s\n", client_name);
+        wait_for_requests();
+    } else {
         fprintf(stderr, "Error: client could not get registered\n");
         exit(EXIT_FAILURE);
-    } else {
-        make_log("Error: Client does not recognize server response", 0);
-        fprintf(stderr, "Error: Client does not recognize server response\n");
-        exit(EXIT_FAILURE);
-    }
+    };
     exit(EXIT_SUCCESS);
 }
 
-void wait_for_requests(int server_socket_id) {
+int try_register(char *client_name) {
     Message message;
-    Operation *operation;
-    Operation result;
-    while ((operation = (Operation *) (receive_message(server_socket_id, &message)))) {
-        if (get_result(operation, &result) == 0) {
-            message.length = sizeof(result);
-            message.type = OPERATION_RES_MSG;
-            if (send_message(server_socket_id, &message, &result) == -1) {
-                make_log("Error: client could not sent back result of operation %d", result.operation_id);
-                fprintf(stderr, "Error: client could not sent back result of operation %d\n", result.operation_id);
-            } else {
-                make_log("Client sent message %d", operation->operation_id);
-            };
-            free(operation);
+    message.type = NAME_REQ_MSG;
+    message.length = (short) (strlen(client_name) + 1);
+    if (send_message(server_socket_fd, &message, client_name) == -1) {
+        fprintf(stderr, "Error: sending registration request message\n");
+        return -1;
+    };
+
+    void *received_data;
+    if ((received_data = receive_message(server_socket_fd, &message)) == NULL) {
+        fprintf(stderr, "Error: receiving registration response message\n");
+        return -1;
+    };
+    free(received_data);
+
+    switch (message.type) {
+        case REGISTERED_RES_MSG:
+            return 0;
+        case NOT_REGISTERED_RES_MSG:
+            return -1;
+        default:
+            fprintf(stderr, "Error: client received unexpected message type\n");
+            return -1;
+    }
+}
+
+void wait_for_requests() {
+    Message message;
+    void *received_data;
+    while ((received_data = receive_message(server_socket_fd, &message))) {
+        switch (message.type) {
+            case OPERATION_REQ_MSG:
+                handle_operation_request(received_data);
+                free(received_data);
+                break;
+            case PING_REQUEST:
+                handle_ping_request();
+                free(received_data);
+                break;
+            default:
+                make_log("Client received unsupported message type", 0);
         }
+    }
+}
+
+void handle_ping_request() {
+    Message message;
+    message.length = 0;
+    message.type = PING_RESPONSE;
+    if (send_message(server_socket_fd, &message, NULL) == -1) {
+        make_log("Error: client could not sent ping response", 0);
+        fprintf(stderr, "Error: client could not sent ping response\n");
+    } else {
+        make_log("Client sent message type %d", PING_RESPONSE);
+    };
+}
+
+void handle_operation_request(void *received_data) {
+    Operation *requested_operation = (Operation *) received_data;
+    Operation result;
+    if (get_result(requested_operation, &result) == 0) {
+        Message message;
+        message.length = sizeof(result);
+        message.type = OPERATION_RES_MSG;
+        if (send_message(server_socket_fd, &message, &result) == -1) {
+            make_log("Error: client could not sent result of operation %d", result.operation_id);
+            fprintf(stderr, "Error: client could not sent result of operation %d\n", result.operation_id);
+        } else {
+            make_log("Client sent message %d", requested_operation->operation_id);
+        };
     }
 }
 

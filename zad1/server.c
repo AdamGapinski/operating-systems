@@ -220,7 +220,7 @@ void *socket_thread(void *arg) {
     int waited_fds_num;
     while (!socket_thread_end) {
         pthread_mutex_lock(&clients_mutex_socket_thread);
-        if ((waited_fds_num = epoll_wait(epoll_fd, events, MAX_CLIENTS, -1)) == -1) {
+        if ((waited_fds_num = epoll_wait(epoll_fd, events, MAX_CLIENTS + 2, PING_TIME * 1000)) == -1) {
             make_log("Error epoll_wait", 0);
             perror("Error epoll_wait");
             exit(EXIT_FAILURE);
@@ -243,13 +243,13 @@ void *socket_thread(void *arg) {
             }
         }
         pthread_mutex_unlock(&clients_mutex_socket_thread);
+        usleep(10);
     }
     make_log("socket: exited", 0);
     pthread_exit((void *) 0);
 }
 
 void handle_client_response(int socket_fd) {
-    make_log("client with socket fd: %d ready to read from", socket_fd);
     Message message;
     void *received_data;
     if ((received_data = receive_message(socket_fd, &message)) != NULL && message.type == OPERATION_RES_MSG) {
@@ -268,7 +268,10 @@ void handle_client_response(int socket_fd) {
         make_log("obtained result %d", (int) result->result);
         make_log("obtained result id %d", result->operation_id);
     }
-    if (received_data != NULL) {
+    if (received_data == NULL) {
+        shutdown(socket_fd, SHUT_RDWR);
+        close(socket_fd);
+    } else {
         free(received_data);
     }
 }

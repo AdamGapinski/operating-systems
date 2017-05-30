@@ -17,6 +17,7 @@
 #define UNIX_PATH_MAX 108
 #define LISTEN_BACKLOG 50
 #define MAX_CLIENTS 22
+#define PING_TIME 3
 
 typedef struct Client {
     char *name;
@@ -142,12 +143,12 @@ int read_option() {
     return option;
 }
 
-int read_argument(char *info) {
-    int argument;
-    int result;
+double read_argument(char *info) {
+    double argument;
+    double result;
     do {
         printf("%s\n", info);
-        result = scanf("%d", &argument);
+        result = scanf("%lf", &argument);
         if (result == EOF) {
             fprintf(stderr, "stdin EOF\n");
             exit(EXIT_FAILURE);
@@ -183,14 +184,15 @@ void enqueue_operation(int option) {
 
 void to_string(Operation *operation, char *buf) {
     char sign;
-    switch(operation->operation) {
+    switch(operation->operation_type) {
         case ADDITION: sign = '+'; break;
         case SUBTRACTION: sign = '-'; break;
         case MULTIPLICATION: sign = '*'; break;
         case DIVISION: sign = '/'; break;
         default: sign = '#';break;
     }
-    sprintf(buf, "%.3lf %c %.3lf", operation->first_argument, sign, operation->second_argument);
+
+    sprintf(buf, "%lf %c %lf", operation->first_argument, sign, operation->second_argument);
 }
 
 void *startSocketThread(void *arg) {
@@ -318,7 +320,7 @@ Client *find_client(int socket_fd) {
 int try_register_client(int epoll_fd, int server_socket) {
     int client_socket_fd;
     if ((client_socket_fd = accept(server_socket, NULL, NULL)) == -1) {
-        make_log("Error accept4", 0);
+        make_log("Error accept", 0);
         return -1;
     }
     int slot_index;
@@ -329,7 +331,6 @@ int try_register_client(int epoll_fd, int server_socket) {
         return -1;
     }
     Message message;
-    message.type = NAME_RES_MSG;
     char *name;
     if ((name = receive_message(client_socket_fd, &message)) == NULL) {
         make_log("Error receiving client name", 0);
@@ -338,22 +339,22 @@ int try_register_client(int epoll_fd, int server_socket) {
         return -1;
     };
     if (name_available(name) == -1) {
-        char *msg_buf = "not registered";
-        message.length = (short) (strlen(msg_buf) + 1);
-        send_message(client_socket_fd, &message, msg_buf);
+        message.length = 0;
+        message.type = NOT_REGISTERED_RES_MSG;
+        send_message(client_socket_fd, &message, NULL);
         free(name);
         return -1;
     }
-    char *msg_buf = "registered";
-    message.length = (short) (strlen(msg_buf) + 1);
-    send_message(client_socket_fd, &message, msg_buf);
+    message.length = 0;
+    message.type = REGISTERED_RES_MSG;
+    send_message(client_socket_fd, &message, NULL);
     clients[slot_index] = malloc(sizeof(*clients));
     clients[slot_index]->socket_fd = client_socket_fd;
     clients[slot_index]->name = name;
     clients[slot_index]->active = 0;
 
     struct epoll_event event;
-    event.events = EPOLLIN | EPOLLOUT | EPOLLET;
+    event.events = EPOLLIN | EPOLLOUT;
     event.data.fd = client_socket_fd;
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_socket_fd, &event) == -1) {
         make_log("Error epoll_ctl add", 0);
@@ -401,7 +402,7 @@ int setup_server_local_socket(int epoll_fd) {
         exit(EXIT_FAILURE);
     }
     struct epoll_event event;
-    event.events = EPOLLIN | EPOLLET;
+    event.events = EPOLLIN;
     event.data.fd = server_local_socket;
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_local_socket, &event) == -1) {
         perror("Error epoll_ctl add");
@@ -432,7 +433,7 @@ int setup_server_inet_socket(int epoll_fd) {
         exit(EXIT_FAILURE);
     }
     struct epoll_event event;
-    event.events = EPOLLIN | EPOLLET;
+    event.events = EPOLLIN;
     event.data.fd = server_inet_socket;
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_inet_socket, &event) == -1) {
         perror("Error epoll_ctl add");
@@ -445,9 +446,15 @@ int end = 1;
 void *startPingThread(void *arg) {
     pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
     make_log("ping: started", 0);
-    while (end) {
-
-    }
+    /*while (end) {
+        sleep(PING_TIME);
+        for (int i = 0; i < MAX_CLIENTS; ++i) {
+            if (clients[i] != NULL && clients[i]->active == 1) {
+                Message message;
+                send_message(clients[i]->socket_fd, );
+            }
+        }
+    }*/
     make_log("ping: exited", 0);
     pthread_exit((void *) 0);
 }

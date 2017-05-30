@@ -13,11 +13,7 @@ pthread_mutex_t logger_read_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t logger_write_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 char *filename = "logs";
-char *logMsg = NULL;
-pthread_t loggerThread;
-int logThreadStarted = 0;
-
-void createLoggerThread();
+FILE *logfile = NULL;
 
 void data_logging(int data_type, void *data);
 
@@ -74,7 +70,6 @@ int send_message(int socket_fd, Message *message, void *data) {
     msg_data->length = htobe16(message->length);
     if (send(socket_fd, msg_structure_pointer, msg_bytes, 0) != msg_bytes) {
         make_log("sending error", 0);
-        perror("sending error");
         return -1;
     }
     free(msg_structure_pointer);
@@ -107,11 +102,12 @@ void data_logging(int data_type, void *data) {
             break;
         case REGISTERED_RES_MSG:
             make_log("client registered response", 0);
+            break;
         case NOT_REGISTERED_RES_MSG:
             make_log("client not registered response", 0);
+            break;
         default:
             make_log("unsupported operation type: %d", data_type);
-            break;
     }
 }
 
@@ -144,7 +140,6 @@ void *receive_message(int socket_fd, Message *message) {
             return handle_recv_res(0, message->length, data, message->type);
         default:
             make_log("receiving error - invalid data type", 0);
-            perror("receiving error - invalid data type");
             return NULL;
     }
 }
@@ -163,56 +158,20 @@ void *handle_recv_res(int received, int data_len, void *data, int data_type) {
     }
 }
 
-void *startLoggerThread(void *filename) {
-    pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
-    FILE *logFile;
-    if ((logFile = fopen(filename, "a")) == NULL) {
-        perror("logger: open file error");
-        pthread_exit((void *) 1);
-    }
-    while (1) {
-        pthread_mutex_lock(&logger_read_mutex);
-        size_t info_size = sizeof(*logMsg);
-        size_t info_length = strlen(logMsg);
-        if (fwrite(logMsg, info_size, info_length, logFile) != info_size * info_length) {
-            perror("logger: write file error");
-            pthread_mutex_unlock(&logger_read_mutex);
-            pthread_exit((void *) 1);
-        };
-        fflush(logFile);
-        free(logMsg);
-        pthread_mutex_unlock(&logger_write_mutex);
-    }
-}
-
+char log_buf[512];
 void make_log(char *logArg, int var) {
     pthread_mutex_lock(&logger_write_mutex);
-    if (logArg == NULL) logArg = "NULL";
-    if (logThreadStarted == 0) {
-        pthread_mutex_lock(&logger_read_mutex);
-        createLoggerThread();
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    if (logfile == NULL) {
+        if ((logfile = fopen(filename, "a")) == NULL) {
+            perror("Logger: open file error");
+        }
     }
-    if (logThreadStarted == 1) {
-        logMsg = calloc(strlen(logArg) + 512, sizeof(*logMsg));
-        struct timespec ts;
-        clock_gettime(CLOCK_MONOTONIC, &ts);
-        sprintf(logMsg, "%ld TID %ld s %ld us: %s\n", get_thread_id(), ts.tv_sec, ts.tv_nsec / 1000, logArg);
-        sprintf(logMsg, logMsg, var);
+    if (logfile != NULL) {
+        sprintf(log_buf, logArg, var);
+        fprintf(logfile, "%ld TID %ld s %ld us: %s\n", get_thread_id(), ts.tv_sec, ts.tv_nsec / 1000, log_buf);
     }
-    pthread_mutex_unlock(&logger_read_mutex);
-}
-
-void createLoggerThread() {
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-    int errno;
-    if ((errno = pthread_create(&loggerThread, &attr, startLoggerThread, filename)) != 0) {
-        char errMsgBuf[256];
-        sprintf(errMsgBuf, "Error creating logger thread: %s", strerror(errno));
-        fprintf(stderr, "%s", errMsgBuf);
-    } else {
-        logThreadStarted = 1;
-    }
-    pthread_attr_destroy(&attr);
+    fflush(logfile);
+    pthread_mutex_unlock(&logger_write_mutex);
 }

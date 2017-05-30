@@ -112,7 +112,7 @@ void handle_ping_request() {
         make_log("Error: client could not sent ping response", 0);
         fprintf(stderr, "Error: client could not sent ping response\n");
     } else {
-        make_log("Client sent message type %d", PING_RESPONSE);
+        make_log("Client sent ping response %d", PING_RESPONSE);
     };
 }
 

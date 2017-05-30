@@ -18,20 +18,21 @@
 #define LISTEN_BACKLOG 50
 #define MAX_CLIENTS 22
 #define PING_TIME 3
+#define PING_TIMEOUT 10000
 
 typedef struct Client {
     char *name;
     int socket_fd;
-    int active;
+    int registered;
 } Client;
 
 void start_threads();
 
-void *startTerminalThread(void *arg) ;
+void *terminal_thread(void *arg) ;
 
-void *startSocketThread(void *arg) ;
+void *socket_thread(void *arg) ;
 
-void *startPingThread(void *arg) ;
+void *ping_thread(void *arg) ;
 
 void enqueue_operation(int option);
 
@@ -55,7 +56,11 @@ void to_string(Operation *operation, char *buf) ;
 
 Client *find_client(int socket_fd) ;
 
-int try_send_operation(Operation *operation);
+void *sending_thread(void *arg) ;
+
+void send_operation(Operation *operation) ;
+
+void handle_client_response(int socket_fd);
 
 in_port_t port;
 char *path;
@@ -63,9 +68,13 @@ Client *clients[MAX_CLIENTS];
 const int queue_size = 10;
 Queue *operations;
 int operation_counter = 0;
-pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t queue_cond_not_full = PTHREAD_COND_INITIALIZER;
-pthread_cond_t queue_cond = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t operations_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t operations_cond_not_full = PTHREAD_COND_INITIALIZER;
+pthread_cond_t operations_cond_not_empty = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t clients_mutex_sending_thread = PTHREAD_MUTEX_INITIALIZER;
+
+pthread_mutex_t clients_mutex_socket_thread = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t clients_cond_registered = PTHREAD_COND_INITIALIZER;
 
 int main(int argc, char *argv[]) {
     port = (in_port_t) parseUnsignedIntArg(argc, argv, 1, "TCP port number");
@@ -94,13 +103,14 @@ void start_threads() {
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
     pthread_t thread;
-    pthread_create(&thread, &attr, startTerminalThread, NULL);
-    pthread_create(&thread, &attr, startSocketThread, NULL);
-    pthread_create(&thread, &attr, startPingThread, NULL);
+    pthread_create(&thread, &attr, terminal_thread, NULL);
+    pthread_create(&thread, &attr, socket_thread, NULL);
+    pthread_create(&thread, &attr, sending_thread, NULL);
+    pthread_create(&thread, &attr, ping_thread, NULL);
     pthread_attr_destroy(&attr);
 }
 
-void *startTerminalThread(void *arg) {
+void *terminal_thread(void *arg) {
     pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
     make_log("terminal: started", 0);
     while (1) {
@@ -171,15 +181,15 @@ void enqueue_operation(int option) {
     }
     ++operation_counter;
     Operation *operation = init_operation(option, first_arg, second_arg, -1, operation_counter);
-    pthread_mutex_lock(&queue_mutex);
-    if (enqueue(operations, operation) == -1) {
-        pthread_cond_wait(&queue_cond_not_full, &queue_mutex);
+    pthread_mutex_lock(&operations_mutex);
+    while (enqueue(operations, operation) == -1) {
+        pthread_cond_wait(&operations_cond_not_full, &operations_mutex);
     };
-    pthread_cond_signal(&queue_cond);
-    pthread_mutex_unlock(&queue_mutex);
+    pthread_cond_signal(&operations_cond_not_empty);
     char buf[128];
     to_string(operation, buf);
     printf("Operation %d. scheduled: %s\n", operation->operation_id, buf);
+    pthread_mutex_unlock(&operations_mutex);
 }
 
 void to_string(Operation *operation, char *buf) {
@@ -191,11 +201,11 @@ void to_string(Operation *operation, char *buf) {
         case DIVISION: sign = '/'; break;
         default: sign = '#';break;
     }
-
     sprintf(buf, "%lf %c %lf", operation->first_argument, sign, operation->second_argument);
 }
 
-void *startSocketThread(void *arg) {
+int socket_thread_end = 0;
+void *socket_thread(void *arg) {
     pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
     make_log("socket: started", 0);
     int epoll_fd = epoll_create1(0);
@@ -206,28 +216,11 @@ void *startSocketThread(void *arg) {
     int server_local_socket = setup_server_local_socket(epoll_fd);
     int server_inet_socket = setup_server_inet_socket(epoll_fd);
 
-    Operation *operation = NULL;
     struct epoll_event events[MAX_CLIENTS];
     int waited_fds_num;
-
-    while (1) {
-        pthread_mutex_lock(&queue_mutex);
-        if (queue_empty(operations) == 1) {
-            struct timespec ts;
-            clock_gettime(CLOCK_REALTIME, &ts);
-            ts.tv_nsec += 100000;
-            pthread_cond_timedwait(&queue_cond, &queue_mutex, &ts);
-        }
-        operation = dequeue(operations);
-        pthread_cond_signal(&queue_cond_not_full);
-        pthread_mutex_unlock(&queue_mutex);
-        if (operation != NULL && try_send_operation(operation) == 1) {
-            make_log("operation sent", 0);
-            operation = NULL;
-            free(operation);
-        }
-
-        if ((waited_fds_num = epoll_wait(epoll_fd, events, MAX_CLIENTS, 0)) == -1) {
+    while (!socket_thread_end) {
+        pthread_mutex_lock(&clients_mutex_socket_thread);
+        if ((waited_fds_num = epoll_wait(epoll_fd, events, MAX_CLIENTS, -1)) == -1) {
             make_log("Error epoll_wait", 0);
             perror("Error epoll_wait");
             exit(EXIT_FAILURE);
@@ -240,72 +233,105 @@ void *startSocketThread(void *arg) {
                 shutdown(event_socket_fd, SHUT_RDWR);
                 close(event_socket_fd);
                 errno = 0;
-                continue;
-            } else if (event_socket_fd == server_local_socket && (events[i].events & EPOLLIN)) {
-                try_register_client(epoll_fd, server_local_socket);
-            } else if (event_socket_fd == server_inet_socket && (events[i].events & EPOLLIN)) {
-                try_register_client(epoll_fd, server_inet_socket);
-            } else if (events[i].events & EPOLLOUT) {
-                Client *client;
-                if ((client = find_client(event_socket_fd)) != NULL) {
-                    client->active = 1;
-                    make_log("client with socked fd: %d ready to write to", events[i].data.fd);
-                }
-            }
-            if (events[i].events & EPOLLIN){
-                make_log("client with socked fd: %d ready to read from", event_socket_fd);
-                Message message;
-                Operation *result;
-                if ((result = receive_message(event_socket_fd, &message)) != NULL) {
-                    char buf[128];
-                    Client *client;
-                    to_string(result, buf);
-                    if ((client = find_client(result->client_id)) == NULL) {
-                        printf("result of %d. %s = %lf from unknown\n", result->operation_id, buf,
-                               result->result);
-                    } else {
-                        printf("result of %d. %s = %lf from %d. %s\n", result->operation_id, buf,
-                               result->result, result->client_id, client->name);
-                    }
-                    make_log("obtained result %d", (int) result->result);
-                    make_log("obtained result id %d", result->operation_id);
-                    free(result);
-                }
-            }
-            else {
+            } else if ((event_socket_fd == server_local_socket || event_socket_fd == server_inet_socket) &&
+                    (events[i].events & EPOLLIN)) {
+                try_register_client(epoll_fd, event_socket_fd);
+            } else if (events[i].events & EPOLLIN){
+                handle_client_response(event_socket_fd);
+            } else {
                 make_log("client ready - event %d", events[i].events);
             }
         }
+        pthread_mutex_unlock(&clients_mutex_socket_thread);
     }
     make_log("socket: exited", 0);
     pthread_exit((void *) 0);
 }
 
-int try_send_operation(Operation *operation) {
-    if (operation == NULL) return -1;
-    int active[MAX_CLIENTS];
-    int active_iterator = 0;
-    for (int i = 0; i < MAX_CLIENTS; ++i) {
-        if (clients[i] != NULL && clients[i]->active) {
-            active[active_iterator] = i;
-            ++active_iterator;
+void handle_client_response(int socket_fd) {
+    make_log("client with socket fd: %d ready to read from", socket_fd);
+    Message message;
+    void *received_data;
+    if ((received_data = receive_message(socket_fd, &message)) != NULL && message.type == OPERATION_RES_MSG) {
+        Operation *result = (Operation *) received_data;
+        char buf[128];
+        to_string(result, buf);
+
+        Client *client;
+        if ((client = find_client(result->client_id)) == NULL) {
+            printf("result of %d. %s = %lf from unknown\n", result->operation_id, buf,
+                   result->result);
+        } else {
+            printf("result of %d. %s = %lf from %d. %s\n", result->operation_id, buf,
+                   result->result, result->client_id, client->name);
         }
+        make_log("obtained result %d", (int) result->result);
+        make_log("obtained result id %d", result->operation_id);
     }
-    if (active_iterator != 0) {
-        int rand_active = rand() % active_iterator;
-        int client_socket_id = clients[active[rand_active]]->socket_fd;
-        Message message;
-        message.length = sizeof(*operation);
-        message.type = OPERATION_REQ_MSG;
-        operation->client_id = client_socket_id;
-        make_log("Server sending operation to client %d", client_socket_id);
-        if (send_message(client_socket_id, &message, operation) == -1) {
-            make_log("Error: server sending operation to client", 0);
-            return -1;
+    if (received_data != NULL) {
+        free(received_data);
+    }
+}
+
+int sending_end = 0;
+void *sending_thread(void *arg) {
+    pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
+    make_log("sending thread started", 0);
+    Operation *operation;
+    while (!sending_end) {
+        pthread_mutex_lock(&operations_mutex);
+        while ((operation = dequeue(operations)) == NULL) {
+            pthread_cond_wait(&operations_cond_not_empty, &operations_mutex);
         }
-        return 1;
+        pthread_cond_signal(&operations_cond_not_full);
+        pthread_mutex_unlock(&operations_mutex);
+
+        //send_operation blocks until the operation is sent
+        send_operation(operation);
+        make_log("operation sent %d", operation->operation_id);
+        operation = NULL;
+        free(operation);
     }
-    return -1;
+    pthread_exit((void *) 0);
+}
+
+void send_operation(Operation *operation) {
+    int registered[MAX_CLIENTS];
+    int sent;
+    int registered_iterator;
+    do {
+        pthread_mutex_lock(&clients_mutex_sending_thread);
+        registered_iterator = 0;
+        for (int i = 0; i < MAX_CLIENTS; ++i) {
+            if (clients[i] != NULL && clients[i]->registered) {
+                registered[registered_iterator] = i;
+                ++registered_iterator;
+            }
+        }
+        if (registered_iterator != 0) {
+            int rand_registered = rand() % registered_iterator;
+            int client_socket_id = clients[registered[rand_registered]]->socket_fd;
+            Message message;
+            message.length = sizeof(*operation);
+            message.type = OPERATION_REQ_MSG;
+            operation->client_id = client_socket_id;
+            make_log("Server sending operation to client %d", client_socket_id);
+            if (send_message(client_socket_id, &message, operation) == 0) {
+                sent = 1;
+            } else {
+                make_log("Error: server sending operation to client", 0);
+                sleep(1);
+                sent = 0;
+            }
+        } else {
+            make_log("waiting for registered", 0);
+            pthread_cond_wait(&clients_cond_registered, &clients_mutex_sending_thread);
+            make_log("waited for registered", 0);
+            sent = 0;
+        }
+        pthread_mutex_unlock(&clients_mutex_sending_thread);
+        usleep(1000);
+    } while (!sent);
 }
 
 Client *find_client(int socket_fd) {
@@ -348,19 +374,24 @@ int try_register_client(int epoll_fd, int server_socket) {
     message.length = 0;
     message.type = REGISTERED_RES_MSG;
     send_message(client_socket_fd, &message, NULL);
+
+    pthread_mutex_lock(&clients_mutex_sending_thread);
     clients[slot_index] = malloc(sizeof(*clients));
     clients[slot_index]->socket_fd = client_socket_fd;
     clients[slot_index]->name = name;
-    clients[slot_index]->active = 0;
+    clients[slot_index]->registered = 1;
 
     struct epoll_event event;
-    event.events = EPOLLIN | EPOLLOUT;
+    event.events = EPOLLIN;
     event.data.fd = client_socket_fd;
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_socket_fd, &event) == -1) {
         make_log("Error epoll_ctl add", 0);
         perror("Error epoll_ctl add");
+        pthread_mutex_unlock(&clients_mutex_sending_thread);
         return -1;
     }
+    pthread_cond_signal(&clients_cond_registered);
+    pthread_mutex_unlock(&clients_mutex_sending_thread);
     make_log("accepted connection", 0);
     return 0;
 }
@@ -384,7 +415,7 @@ int find_slot() {
 }
 
 int setup_server_local_socket(int epoll_fd) {
-    int server_local_socket = socket(AF_UNIX, SOCK_STREAM, 0);
+    int server_local_socket = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (server_local_socket == -1) {
         perror("Error socket");
         exit(EXIT_FAILURE);
@@ -412,7 +443,7 @@ int setup_server_local_socket(int epoll_fd) {
 }
 
 int setup_server_inet_socket(int epoll_fd) {
-    int server_inet_socket = socket(AF_INET, SOCK_STREAM, 0);
+    int server_inet_socket = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (server_inet_socket == -1) {
         perror("Error socket");
         exit(EXIT_FAILURE);
@@ -443,18 +474,45 @@ int setup_server_inet_socket(int epoll_fd) {
 }
 
 int end = 1;
-void *startPingThread(void *arg) {
+void *ping_thread(void *arg) {
     pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
     make_log("ping: started", 0);
-    /*while (end) {
+
+    while (end) {
         sleep(PING_TIME);
+        pthread_mutex_lock(&clients_mutex_socket_thread);
+        pthread_mutex_lock(&clients_mutex_sending_thread);
+        make_log("pinging", 0);
         for (int i = 0; i < MAX_CLIENTS; ++i) {
-            if (clients[i] != NULL && clients[i]->active == 1) {
+            if (clients[i] != NULL && clients[i]->registered == 1) {
+                char test[1];
+                if (recv(clients[i]->socket_fd, test, 1, MSG_DONTWAIT | MSG_PEEK) == 1) {
+                    break;
+                }
                 Message message;
-                send_message(clients[i]->socket_fd, );
+                message.length = 0;
+                message.type = PING_REQUEST;
+                if (send_message(clients[i]->socket_fd, &message, NULL) == -1) {
+                    shutdown(clients[i]->socket_fd, SHUT_RDWR);
+                    close(clients[i]->socket_fd);
+                    free(clients[i]);
+                    clients[i] = NULL;
+                } else {
+                    usleep(PING_TIMEOUT);
+                    if (receive_message(clients[i]->socket_fd, &message) == NULL ||
+                            message.type != PING_RESPONSE) {
+                        shutdown(clients[i]->socket_fd, SHUT_RDWR);
+                        close(clients[i]->socket_fd);
+                        free(clients[i]);
+                        clients[i] = NULL;
+                    };
+                }
             }
         }
-    }*/
+        pthread_mutex_unlock(&clients_mutex_socket_thread);
+        pthread_mutex_unlock(&clients_mutex_sending_thread);
+        make_log("pinged", 0);
+    }
     make_log("ping: exited", 0);
     pthread_exit((void *) 0);
 }

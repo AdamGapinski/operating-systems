@@ -67,7 +67,7 @@ int send_message(int socket_fd, Message *message, void *data) {
 
     msg_data->type = htobe16(message->type);
     msg_data->length = htobe16(message->length);
-    if (send(socket_fd, msg_structure_pointer, msg_bytes, 0) != msg_bytes) {
+    if (send(socket_fd, msg_structure_pointer, msg_bytes, MSG_DONTWAIT | MSG_NOSIGNAL) != msg_bytes) {
         make_log("sending error", 0);
         return -1;
     }
@@ -118,7 +118,7 @@ void data_logging(int data_type, void *data, int sending) {
 }
 
 void *receive_message(int socket_fd, Message *message) {
-    int received = (int) recv(socket_fd, message, sizeof(*message), 0);
+    int received = (int) recv(socket_fd, message, sizeof(*message), MSG_WAITALL);
     if (handle_recv_res(received, sizeof(*message), message, -1) == NULL) {
         return NULL;
     }
@@ -131,7 +131,7 @@ void *receive_message(int socket_fd, Message *message) {
         case OPERATION_REQ_MSG:
         case OPERATION_RES_MSG:
             data = calloc((size_t) message->length, 1);
-            received = (int) recv(socket_fd, data, (size_t) message->length, 0);
+            received = (int) recv(socket_fd, data, (size_t) message->length, MSG_WAITALL);
             return handle_recv_res(received, message->length, data, message->type);
         case PING_REQUEST:
         case PING_RESPONSE:

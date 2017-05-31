@@ -4,7 +4,6 @@
 #define _GNU_SOURCE
 #endif
 
-#define MAX_CLIENTS 22
 #define CLIENT_MAX_NAME 64
 #define OPERATION_REQ_MSG 0
 #define OPERATION_RES_MSG 1

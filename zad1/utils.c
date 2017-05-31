@@ -76,41 +76,44 @@ int send_message(int socket_fd, Message *message, void *data) {
 }
 
 void data_logging(int data_type, void *data, int sending) {
+    char *activity = sending ? "SENDING" : "RECEIVING";
+    make_log(activity, 0);
+
     char *text;
     Operation *operation;
-    if (sending) make_log("SENDING", 0);
-    else make_log("RECEIVING", 0);
     switch (data_type) {
         case NAME_REQ_MSG:
             text = data;
-            make_log(text, 0);
+            char buf[CLIENT_MAX_NAME + 10];
+            sprintf(buf, "name: %s", text);
+            make_log(buf, 0);
             break;
         case OPERATION_REQ_MSG:
         case OPERATION_RES_MSG:
             operation = data;
+            make_log("operation: operation id %d", operation->operation_id);
+            make_log("operation: client id %d", operation->client_id);
+            make_log("operation: operation type %d", operation->operation_type);
             make_log("operation: first argument %d", (int) operation->first_argument);
             make_log("operation: second argument %d", (int) operation->second_argument);
-            make_log("operation: operation %d", operation->operation_type);
-            make_log("operation: operation ID %d", operation->operation_id);
-            make_log("operation: client_id %d", operation->client_id);
             break;
         case PING_REQUEST:
-            make_log("Ping request message", 0);
+            make_log("ping: request message", 0);
             break;
         case PING_RESPONSE:
-            make_log("Ping response message", 0);
+            make_log("ping: response message", 0);
             break;
         case REGISTERED_RES_MSG:
-            make_log("Registered response message", 0);
+            make_log("registered: response message", 0);
             break;
         case NOT_REGISTERED_RES_MSG:
-            make_log("Not registered response message", 0);
+            make_log("not registered: response message", 0);
             break;
         case UNREGISTER_REQ_MSG:
-            make_log("Unregister request message", 0);
+            make_log("unregister: request message", 0);
             break;
         default:
-            make_log("unsupported operation type: %d", data_type);
+            make_log("unsupported data logging type: %d", data_type);
     }
 }
 
@@ -138,21 +141,23 @@ void *receive_message(int socket_fd, Message *message) {
             data = calloc(1, 1);
             return handle_recv_res(0, message->length, data, message->type);
         default:
-            make_log("receiving error - invalid data type", 0);
+            make_log("Receiving error unsupported message type", 0);
             return NULL;
     }
 }
 
 void *handle_recv_res(int received, int data_len, void *data, int data_type) {
     if (received == data_len) {
-        if (data_type != -1) data_logging(data_type, data, 0);
+        if (data_type != -1) {
+            data_logging(data_type, data, 0);
+        }
         return data;
     } else if (received == 0) {
-        make_log("receiving error - connection closed", 0);
+        make_log("Receiving error - connection closed", 0);
         return NULL;
     }
     else {
-        make_log("receiving error", 0);
+        make_log("Receiving error", 0);
         return NULL;
     }
 }
@@ -169,7 +174,7 @@ void make_log(char *logArg, int var) {
     }
     if (logfile != NULL) {
         sprintf(log_buf, logArg, var);
-        fprintf(logfile, "%ld TID %ld s %ld us: %s\n", get_thread_id(), ts.tv_sec, ts.tv_nsec / 1000, log_buf);
+        fprintf(logfile, "%ld TID %ld s: %s\n", get_thread_id(), ts.tv_sec, log_buf);
     }
     fflush(logfile);
     pthread_mutex_unlock(&logger_write_mutex);

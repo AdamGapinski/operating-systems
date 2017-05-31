@@ -9,17 +9,16 @@
 #include "include/utils.h"
 #include "include/queue.h"
 
-pthread_mutex_t logger_read_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t logger_write_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 char *filename = "logs";
 FILE *logfile = NULL;
 
-void data_logging(int data_type, void *data);
+void data_logging(int data_type, void *data, int sending);
 
 void *handle_recv_res(int received, int data_len, void *data, int data_type) ;
 
-char *parseTextArg(int argc, char **argv, int arg_num, char *des) {
+char *parse_text_arg(int argc, char **argv, int arg_num, char *des) {
     if (argc <= arg_num) {
         fprintf(stderr, "Error: Argument %d. - %s not specified\n", arg_num, des);
         exit(EXIT_FAILURE);
@@ -27,7 +26,7 @@ char *parseTextArg(int argc, char **argv, int arg_num, char *des) {
     return argv[arg_num];
 }
 
-int parseUnsignedIntArg(int argc, char **argv, int arg_num, char *des) {
+int parse_unsigned_int_arg(int argc, char **argv, int arg_num, char *des) {
     if (argc <= arg_num) {
         fprintf(stderr, "Error: Argument %d. - %s not specified\n", arg_num, des);
         exit(EXIT_FAILURE);
@@ -41,7 +40,7 @@ int parseUnsignedIntArg(int argc, char **argv, int arg_num, char *des) {
     return result;
 }
 
-void setSigIntHandler(void (*handler)(int)) {
+void set_sig_int_handler(void (*handler)(int)) {
     struct sigaction sigactionStr;
     sigactionStr.sa_handler = handler;
 
@@ -64,7 +63,7 @@ int send_message(int socket_fd, Message *message, void *data) {
     void *data_pointer = ((char *) msg_data) + sizeof(*msg_data);
     memcpy(data_pointer, data, (size_t) message->length);
 
-    data_logging(message->type, data_pointer);
+    data_logging(message->type, data_pointer, 1);
 
     msg_data->type = htobe16(message->type);
     msg_data->length = htobe16(message->length);
@@ -76,10 +75,11 @@ int send_message(int socket_fd, Message *message, void *data) {
     return 0;
 }
 
-void data_logging(int data_type, void *data) {
+void data_logging(int data_type, void *data, int sending) {
     char *text;
     Operation *operation;
-    make_log("SENDING | RECEIVING", 0);
+    if (sending) make_log("SENDING", 0);
+    else make_log("RECEIVING", 0);
     switch (data_type) {
         case NAME_REQ_MSG:
             text = data;
@@ -95,16 +95,19 @@ void data_logging(int data_type, void *data) {
             make_log("operation: client_id %d", operation->client_id);
             break;
         case PING_REQUEST:
-            make_log("Ping request", 0);
+            make_log("Ping request message", 0);
             break;
         case PING_RESPONSE:
-            make_log("Ping response", 0);
+            make_log("Ping response message", 0);
             break;
         case REGISTERED_RES_MSG:
-            make_log("client registered response", 0);
+            make_log("Registered response message", 0);
             break;
         case NOT_REGISTERED_RES_MSG:
-            make_log("client not registered response", 0);
+            make_log("Not registered response message", 0);
+            break;
+        case UNREGISTER_REQ_MSG:
+            make_log("Unregister request message", 0);
             break;
         default:
             make_log("unsupported operation type: %d", data_type);
@@ -119,24 +122,20 @@ void *receive_message(int socket_fd, Message *message) {
     message->type = be16toh(message->type);
     message->length = be16toh(message->length);
 
-    int *data;
-    char *text;
-    Operation *operation;
+    void *data;
     switch(message->type) {
         case NAME_REQ_MSG:
-            text = calloc((size_t) message->length, 1);
-            received = (int) recv(socket_fd, text, (size_t) message->length, 0);
-            return handle_recv_res(received, message->length, text, message->type);
         case OPERATION_REQ_MSG:
         case OPERATION_RES_MSG:
-            operation = calloc((size_t) message->length, 1);
-            received = (int) recv(socket_fd, operation, (size_t) message->length, 0);
-            return handle_recv_res(received, message->length, operation, message->type);
+            data = calloc((size_t) message->length, 1);
+            received = (int) recv(socket_fd, data, (size_t) message->length, 0);
+            return handle_recv_res(received, message->length, data, message->type);
         case PING_REQUEST:
         case PING_RESPONSE:
         case REGISTERED_RES_MSG:
         case NOT_REGISTERED_RES_MSG:
-            data = malloc(sizeof(*data));
+        case UNREGISTER_REQ_MSG:
+            data = calloc(1, 1);
             return handle_recv_res(0, message->length, data, message->type);
         default:
             make_log("receiving error - invalid data type", 0);
@@ -146,7 +145,7 @@ void *receive_message(int socket_fd, Message *message) {
 
 void *handle_recv_res(int received, int data_len, void *data, int data_type) {
     if (received == data_len) {
-        if (data_type != -1) data_logging(data_type, data);
+        if (data_type != -1) data_logging(data_type, data, 0);
         return data;
     } else if (received == 0) {
         make_log("receiving error - connection closed", 0);

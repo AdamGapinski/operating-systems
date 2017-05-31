@@ -11,7 +11,6 @@
 #include <float.h>
 #include "include/utils.h"
 #include "include/queue.h"
-#define _BSD_SOURCE
 
 int validate_domain(char *domain);
 
@@ -29,25 +28,27 @@ void handle_ping_request();
 
 int try_register(char *client_name) ;
 
-int server_socket_fd = 0;
+void interrupted_unregister(int signo) ;
+
+int server_socket_fd = -1;
 
 int main(int argc, char *argv[]) {
-    char *client_name = parseTextArg(argc, argv, 1, "client name");
+    char *client_name = parse_text_arg(argc, argv, 1, "client name");
     if (strlen(client_name) >= CLIENT_MAX_NAME) {
         fprintf(stderr, "Argument validation error - name too long: %s\n", client_name);
         exit(EXIT_FAILURE);
     }
-    char *domain = parseTextArg(argc, argv, 2, "domain: unix or inet");
+    char *domain = parse_text_arg(argc, argv, 2, "domain: unix or inet");
     int domain_option = validate_domain(domain);
     if (domain_option == 0) {
-        char *socket_path = parseTextArg(argc, argv, 3, "unix socket path");
+        char *socket_path = parse_text_arg(argc, argv, 3, "unix socket path");
         server_socket_fd = connect_local(socket_path);
     } else if (domain_option == 1){
-        char *address = parseTextArg(argc, argv, 3, "IPv4 address");
-        int port = parseUnsignedIntArg(argc, argv, 4, "port number");
+        char *address = parse_text_arg(argc, argv, 3, "IPv4 address");
+        int port = parse_unsigned_int_arg(argc, argv, 4, "port number");
         server_socket_fd = connect_inet(address, port);
     }
-
+    set_sig_int_handler(interrupted_unregister);
     if (try_register(client_name) == 0) {
         printf("Client registered with name %s\n", client_name);
         wait_for_requests();
@@ -55,6 +56,23 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Error: client could not get registered\n");
         exit(EXIT_FAILURE);
     };
+    shutdown(server_socket_fd, SHUT_RDWR);
+    close(server_socket_fd);
+    exit(EXIT_SUCCESS);
+}
+
+void interrupted_unregister(int signo) {
+    Message message;
+    message.type = UNREGISTER_REQ_MSG;
+    message.length = 0;
+    if (send_message(server_socket_fd, &message, NULL) == -1) {
+        perror("Error: sending unregister request");
+        shutdown(server_socket_fd, SHUT_RDWR);
+        close(server_socket_fd);
+        exit(EXIT_FAILURE);
+    };
+    shutdown(server_socket_fd, SHUT_RDWR);
+    close(server_socket_fd);
     exit(EXIT_SUCCESS);
 }
 

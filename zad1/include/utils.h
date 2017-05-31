@@ -13,15 +13,16 @@
 #define PING_RESPONSE 4
 #define REGISTERED_RES_MSG 5
 #define NOT_REGISTERED_RES_MSG 6
+#define UNREGISTER_REQ_MSG 7
 
 typedef struct Message {
     short type;
     short length;
 } Message;
 
-char *parseTextArg(int argc, char **argv, int arg_num, char *des);
-int parseUnsignedIntArg(int argc, char **argv, int arg_num, char *des);
-void setSigIntHandler(void (*handler)(int));
+char *parse_text_arg(int argc, char **argv, int arg_num, char *des);
+int parse_unsigned_int_arg(int argc, char **argv, int arg_num, char *des);
+void set_sig_int_handler(void (*handler)(int));
 long get_thread_id();
 int send_message(int socket_fd, Message *message, void *data);
 void *receive_message(int socket_fd, Message *message);

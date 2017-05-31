@@ -11,13 +11,15 @@
 #include <endian.h>
 #include <arpa/inet.h>
 #include <limits.h>
+#include <signal.h>
 #include "include/utils.h"
 #include "include/queue.h"
 
 #define UNIX_PATH_MAX 108
 #define LISTEN_BACKLOG 50
 #define MAX_CLIENTS 22
-#define PING_TIME 3
+#define OPERATIONS_QUEUE_SIZE 10
+#define PING_TIME 4
 #define PING_TIMEOUT 10000
 
 typedef struct Client {
@@ -26,7 +28,7 @@ typedef struct Client {
     int registered;
 } Client;
 
-void start_threads();
+void start_threads() ;
 
 void *terminal_thread(void *arg) ;
 
@@ -34,17 +36,17 @@ void *socket_thread(void *arg) ;
 
 void *ping_thread(void *arg) ;
 
-void enqueue_operation(int option);
+void *sending_thread(void *arg) ;
+
+void enqueue_operation(int option) ;
 
 int read_option() ;
 
-int setup_server_inet_socket(int i);
+int setup_server_inet_socket(int i) ;
 
 int setup_server_local_socket(int epoll_fd) ;
 
 void *receive_message(int socket_fd, Message *message) ;
-
-void init_clients_array() ;
 
 int try_register_client(int epoll_fd, int server_socket);
 
@@ -56,76 +58,112 @@ void to_string(Operation *operation, char *buf) ;
 
 Client *find_client(int socket_fd) ;
 
-void *sending_thread(void *arg) ;
-
 void send_operation(Operation *operation) ;
 
-void handle_client_response(int socket_fd);
+void handle_request(int socket_fd);
+
+void cancel_threads(int signo) ;
+
+void release_resources() ;
+
+void handle_operation_result(void *received_data) ;
+
+void unregister_client(int socket_fd) ;
+
+pthread_t terminal_pthread;
+pthread_t socket_pthread;
+pthread_t sending_pthread;
+pthread_t ping_pthread;
 
 in_port_t port;
 char *path;
-Client *clients[MAX_CLIENTS];
-const int queue_size = 10;
-Queue *operations;
+int binded_local_socket = -1;
 int operation_counter = 0;
+
+Queue *operations;
 pthread_mutex_t operations_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t operations_cond_not_full = PTHREAD_COND_INITIALIZER;
 pthread_cond_t operations_cond_not_empty = PTHREAD_COND_INITIALIZER;
-pthread_mutex_t clients_mutex_sending_thread = PTHREAD_MUTEX_INITIALIZER;
 
+Client *clients[MAX_CLIENTS];
+pthread_mutex_t clients_mutex_sending_thread = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t clients_mutex_socket_thread = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t clients_cond_registered = PTHREAD_COND_INITIALIZER;
 
 int main(int argc, char *argv[]) {
-    port = (in_port_t) parseUnsignedIntArg(argc, argv, 1, "TCP port number");
-    path = parseTextArg(argc, argv, 2, "Unix local socket path");
+    port = (in_port_t) parse_unsigned_int_arg(argc, argv, 1, "TCP port number");
+    path = parse_text_arg(argc, argv, 2, "Unix local socket path");
     if (strlen(path) >= UNIX_PATH_MAX) {
         fprintf(stderr, "Argument validation error - socket path too long: %s, max %d\n", path, UNIX_PATH_MAX - 1);
         exit(EXIT_FAILURE);
     }
-    operations = init_queue(queue_size);
-    init_clients_array();
-    make_log("\t\t\tserver started", 0);
-    srand((unsigned int) time(NULL));
-    start_threads();
-
-    pthread_exit((void *) 0);
-}
-
-void init_clients_array() {
+    atexit(release_resources);
+    set_sig_int_handler(cancel_threads);
+    operations = init_queue(OPERATIONS_QUEUE_SIZE);
     for (int i = 0; i < MAX_CLIENTS; ++i) {
         clients[i] = NULL;
     }
+    make_log("Server: started", 0);
+    srand((unsigned int) time(NULL));
+    start_threads();
+    pthread_exit((void *) 0);
+}
+
+void release_resources() {
+    if (binded_local_socket) {
+        unlink(path);
+    }
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        if (clients[i] != NULL) {
+            shutdown(clients[i]->socket_fd, SHUT_RDWR);
+            close(clients[i]->socket_fd);
+        }
+    }
+}
+
+void cancel_threads(int signo) {
+    if (!pthread_equal(socket_pthread, pthread_self())) {
+        pthread_cancel(socket_pthread);
+    }
+    if (!pthread_equal(sending_pthread, pthread_self())) {
+        pthread_cancel(sending_pthread);
+    }
+    if (!pthread_equal(terminal_pthread, pthread_self())) {
+        pthread_cancel(terminal_pthread);
+    }
+    if (!pthread_equal(ping_pthread, pthread_self())) {
+        pthread_cancel(ping_pthread);
+    }
+    pthread_exit(NULL);
 }
 
 void start_threads() {
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-    pthread_t thread;
-    pthread_create(&thread, &attr, terminal_thread, NULL);
-    pthread_create(&thread, &attr, socket_thread, NULL);
-    pthread_create(&thread, &attr, sending_thread, NULL);
-    pthread_create(&thread, &attr, ping_thread, NULL);
+    pthread_create(&terminal_pthread, &attr, terminal_thread, NULL);
+    pthread_create(&socket_pthread, &attr, socket_thread, NULL);
+    pthread_create(&sending_pthread, &attr, sending_thread, NULL);
+    pthread_create(&ping_pthread, &attr, ping_thread, NULL);
     pthread_attr_destroy(&attr);
 }
 
 void *terminal_thread(void *arg) {
-    pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
-    make_log("terminal: started", 0);
+    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
     while (1) {
         int option = read_option();
         if (option > 0 && option < 5) {
             enqueue_operation(option);
         } else if (option == 5) {
-            //todo cancel the other threads
             printf("exited\n");
+            //to cancel other threads
+            kill(getpid(), SIGINT);
             break;
         } else {
             printf("unsupported operation\n");
         }
     }
-    make_log("terminal: exited", 0);
     pthread_exit((void *) 0);
 }
 
@@ -153,7 +191,7 @@ int read_option() {
     return option;
 }
 
-double read_argument(char *info) {
+double read_operation_argument(char *info) {
     double argument;
     double result;
     do {
@@ -172,9 +210,10 @@ double read_argument(char *info) {
 }
 
 void enqueue_operation(int option) {
-    double first_arg, second_arg;
-    first_arg = read_argument("operation first argument");
-    second_arg = read_argument("operation second argument");
+    double first_arg;
+    double second_arg;
+    first_arg = read_operation_argument("operation first argument");
+    second_arg = read_operation_argument("operation second argument");
     if (option == DIVISION && second_arg == 0) {
         printf("Division by zero not supported\n");
         return;
@@ -206,22 +245,22 @@ void to_string(Operation *operation, char *buf) {
 
 int socket_thread_end = 0;
 void *socket_thread(void *arg) {
-    pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
-    make_log("socket: started", 0);
+    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
     int epoll_fd = epoll_create1(0);
     if (epoll_fd == -1) {
-        perror("Error epoll_create1");
+        make_log("Server: error epoll_create", 0);
+        perror("Error epoll_create");
         exit(EXIT_FAILURE);
     }
     int server_local_socket = setup_server_local_socket(epoll_fd);
     int server_inet_socket = setup_server_inet_socket(epoll_fd);
-
     struct epoll_event events[MAX_CLIENTS];
     int waited_fds_num;
     while (!socket_thread_end) {
         pthread_mutex_lock(&clients_mutex_socket_thread);
         if ((waited_fds_num = epoll_wait(epoll_fd, events, MAX_CLIENTS + 2, PING_TIME * 1000)) == -1) {
-            make_log("Error epoll_wait", 0);
+            make_log("Server: error epoll_wait", 0);
             perror("Error epoll_wait");
             exit(EXIT_FAILURE);
         }
@@ -230,56 +269,231 @@ void *socket_thread(void *arg) {
             if (((events[i].events & EPOLLERR) ||
                     (events[i].events & EPOLLHUP)) &&
                     (events[i].events & EPOLLIN) == 0) {
+                make_log("Server: closing connection %d", event_socket_fd);
                 shutdown(event_socket_fd, SHUT_RDWR);
                 close(event_socket_fd);
-                errno = 0;
             } else if ((event_socket_fd == server_local_socket || event_socket_fd == server_inet_socket) &&
                     (events[i].events & EPOLLIN)) {
                 try_register_client(epoll_fd, event_socket_fd);
             } else if (events[i].events & EPOLLIN){
-                handle_client_response(event_socket_fd);
+                handle_request(event_socket_fd);
             } else {
-                make_log("client ready - event %d", events[i].events);
+                make_log("Server: epoll unexpected event %d", events[i].events);
             }
         }
         pthread_mutex_unlock(&clients_mutex_socket_thread);
         usleep(10);
     }
-    make_log("socket: exited", 0);
     pthread_exit((void *) 0);
 }
 
-void handle_client_response(int socket_fd) {
-    Message message;
-    void *received_data;
-    if ((received_data = receive_message(socket_fd, &message)) != NULL && message.type == OPERATION_RES_MSG) {
-        Operation *result = (Operation *) received_data;
-        char buf[128];
-        to_string(result, buf);
-
-        Client *client;
-        if ((client = find_client(result->client_id)) == NULL) {
-            printf("result of %d. %s = %lf from unknown\n", result->operation_id, buf,
-                   result->result);
-        } else {
-            printf("result of %d. %s = %lf from %d. %s\n", result->operation_id, buf,
-                   result->result, result->client_id, client->name);
-        }
-        make_log("obtained result %d", (int) result->result);
-        make_log("obtained result id %d", result->operation_id);
+int setup_server_local_socket(int epoll_fd) {
+    int socket_fd;
+    if ((socket_fd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0)) == -1) {
+        perror("Error setting socket");
+        make_log("Server: error setting unix socket, errno: %d", errno);
+        exit(EXIT_FAILURE);
     }
-    if (received_data == NULL) {
+    struct sockaddr_un address;
+    memset(&address, 0, sizeof(struct sockaddr_un));
+    address.sun_family = AF_UNIX;
+    strncpy(address.sun_path, path, sizeof(address.sun_path) - 1);
+    if (bind(socket_fd, (struct sockaddr *) &address, sizeof(address)) == -1) {
+        perror("Error setting socket");
+        make_log("Server: error binding unix socket, errno: %d", errno);
+        exit(EXIT_FAILURE);
+    }
+    binded_local_socket = 1;
+    if (listen(socket_fd, LISTEN_BACKLOG) == -1) {
+        perror("Error setting socket");
+        make_log("Server: error setting listening unix socket, errno: %d", errno);
+        exit(EXIT_FAILURE);
+    }
+    struct epoll_event event;
+    event.events = EPOLLIN;
+    event.data.fd = socket_fd;
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, socket_fd, &event) == -1) {
+        perror("Error setting socket");
+        make_log("Server: error adding unix socket to epoll, errno: %d", errno);
+        exit(EXIT_FAILURE);
+    }
+    return socket_fd;
+}
+
+int setup_server_inet_socket(int epoll_fd) {
+    int socket_fd;
+    if ((socket_fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0)) == -1) {
+        perror("Error setting socket");
+        make_log("Server: error setting inet socket, errno: %d", errno);
+        exit(EXIT_FAILURE);
+    }
+    struct sockaddr_in address;
+    memset(&address, 0, sizeof(struct sockaddr_in));
+    address.sin_family = AF_INET;
+    address.sin_port = htobe16(port);
+    struct in_addr adr;
+    adr.s_addr = INADDR_ANY;
+    address.sin_addr = adr;
+    if (bind(socket_fd, (struct sockaddr *) &address, sizeof(address)) == -1) {
+        perror("Error setting socket");
+        make_log("Server: error binding inet socket, errno: %d", errno);
+        exit(EXIT_FAILURE);
+    }
+    if (listen(socket_fd, LISTEN_BACKLOG - 40) == -1) {
+        perror("Error setting socket");
+        make_log("Server: error setting listening inet socket, errno: %d", errno);
+        exit(EXIT_FAILURE);
+    }
+    struct epoll_event event;
+    event.events = EPOLLIN;
+    event.data.fd = socket_fd;
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, socket_fd, &event) == -1) {
+        perror("Error setting socket");
+        make_log("Server: error adding inet socket to epoll, errno: %d", errno);
+        exit(EXIT_FAILURE);
+    }
+    return socket_fd;
+}
+
+int try_register_client(int epoll_fd, int server_socket) {
+    int client_socket_fd;
+    int slot_index;
+    if ((slot_index = find_slot()) == -1) {
+        make_log("Server: no free slot for new client", 0);
+        return -1;
+    }
+    if ((client_socket_fd = accept(server_socket, NULL, NULL)) == -1) {
+        make_log("Server: error accepting client connection", 0);
+        return -1;
+    }
+    Message message;
+    char *name;
+    if ((name = receive_message(client_socket_fd, &message)) == NULL && message.type != NAME_REQ_MSG) {
+        make_log("Server: error receiving client name", 0);
+        free(name);
+        shutdown(client_socket_fd, SHUT_RDWR);
+        close(client_socket_fd);
+        return -1;
+    };
+    if (name_available(name) == -1) {
+        make_log("Server: error client requested name not available", 0);
+        message.length = 0;
+        message.type = NOT_REGISTERED_RES_MSG;
+        send_message(client_socket_fd, &message, NULL);
+        shutdown(client_socket_fd, SHUT_RDWR);
+        close(client_socket_fd);
+        free(name);
+        return -1;
+    }
+    message.length = 0;
+    message.type = REGISTERED_RES_MSG;
+    if (send_message(client_socket_fd, &message, NULL) == -1) {
+        make_log("Server: error sending registered response", 0);
+    };
+
+    pthread_mutex_lock(&clients_mutex_sending_thread);
+    clients[slot_index] = malloc(sizeof(*clients));
+    clients[slot_index]->socket_fd = client_socket_fd;
+    clients[slot_index]->name = name;
+    clients[slot_index]->registered = 1;
+
+    struct epoll_event event;
+    event.events = EPOLLIN;
+    event.data.fd = client_socket_fd;
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_socket_fd, &event) == -1) {
+        make_log("Server: error epoll add client", 0);
+        pthread_mutex_unlock(&clients_mutex_sending_thread);
+        return -1;
+    }
+    pthread_cond_signal(&clients_cond_registered);
+    pthread_mutex_unlock(&clients_mutex_sending_thread);
+    make_log("Server: accepted connection, socket fd: %d", client_socket_fd);
+    return 0;
+}
+
+int name_available(char *name) {
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        if (clients[i] != NULL && strcmp(clients[i]->name, name) == 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int find_slot() {
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        if (clients[i] == NULL) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void handle_request(int socket_fd) {
+    Message message;
+    void *received_data = receive_message(socket_fd, &message);
+    if (received_data != NULL) {
+        switch (message.type) {
+            case OPERATION_RES_MSG:
+                make_log("Server: received operation result request from %d", socket_fd);
+                handle_operation_result(received_data);
+                break;
+            case UNREGISTER_REQ_MSG:
+                make_log("Server: received unregister request from %d", socket_fd);
+                unregister_client(socket_fd);
+                break;
+            default:
+                make_log("Server: received unsupported request type %d", message.type);
+        }
+        free(received_data);
+    } else {
+        make_log("Server: closing connection %d", socket_fd);
         shutdown(socket_fd, SHUT_RDWR);
         close(socket_fd);
+    }
+}
+
+void handle_operation_result(void *received_data) {
+    Operation *result = (Operation *) received_data;
+    char buf[128];
+    to_string(result, buf);
+
+    Client *client;
+    if ((client = find_client(result->client_id)) == NULL) {
+        printf("result of %d. %s = %lf from unknown\n", result->operation_id, buf,
+               result->result);
     } else {
-        free(received_data);
+        printf("result of %d. %s = %lf from %d. %s\n", result->operation_id, buf,
+               result->result, result->client_id, client->name);
+    }
+}
+
+Client *find_client(int socket_fd) {
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        if (clients[i] != NULL && clients[i]->socket_fd == socket_fd) {
+            return clients[i];
+        }
+    }
+    return NULL;
+}
+
+void unregister_client(int socket_fd) {
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        if (clients[i] != NULL && clients[i]->socket_fd == socket_fd) {
+            make_log("Server: shutting down connection and unregistering %d. %s", clients[i]->socket_fd);
+            shutdown(socket_fd, SHUT_RDWR);
+            close(socket_fd);
+            free(clients[i]->name);
+            free(clients[i]);
+            clients[i] = NULL;
+        }
     }
 }
 
 int sending_end = 0;
 void *sending_thread(void *arg) {
-    pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
-    make_log("sending thread started", 0);
+    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
     Operation *operation;
     while (!sending_end) {
         pthread_mutex_lock(&operations_mutex);
@@ -291,7 +505,7 @@ void *sending_thread(void *arg) {
 
         //send_operation blocks until the operation is sent
         send_operation(operation);
-        make_log("operation sent %d", operation->operation_id);
+        make_log("Server: operation sent %d", operation->operation_id);
         operation = NULL;
         free(operation);
     }
@@ -318,174 +532,31 @@ void send_operation(Operation *operation) {
             message.length = sizeof(*operation);
             message.type = OPERATION_REQ_MSG;
             operation->client_id = client_socket_id;
-            make_log("Server sending operation to client %d", client_socket_id);
             if (send_message(client_socket_id, &message, operation) == 0) {
                 sent = 1;
             } else {
-                make_log("Error: server sending operation to client", 0);
+                make_log("Error: server sending operation %d to client", operation->operation_id);
                 sleep(1);
                 sent = 0;
             }
         } else {
-            make_log("waiting for registered", 0);
+            make_log("Server: waiting for registered clients", 0);
             pthread_cond_wait(&clients_cond_registered, &clients_mutex_sending_thread);
-            make_log("waited for registered", 0);
             sent = 0;
         }
         pthread_mutex_unlock(&clients_mutex_sending_thread);
-        usleep(1000);
     } while (!sent);
 }
 
-Client *find_client(int socket_fd) {
-    for (int i = 0; i < MAX_CLIENTS; ++i) {
-        if (clients[i] != NULL && clients[i]->socket_fd == socket_fd) {
-            return clients[i];
-        }
-    }
-    return NULL;
-}
-
-int try_register_client(int epoll_fd, int server_socket) {
-    int client_socket_fd;
-    if ((client_socket_fd = accept(server_socket, NULL, NULL)) == -1) {
-        make_log("Error accept", 0);
-        return -1;
-    }
-    int slot_index;
-    if ((slot_index = find_slot()) == -1) {
-        make_log("No free slot for new client", 0);
-        shutdown(client_socket_fd, SHUT_RDWR);
-        close(client_socket_fd);
-        return -1;
-    }
-    Message message;
-    char *name;
-    if ((name = receive_message(client_socket_fd, &message)) == NULL) {
-        make_log("Error receiving client name", 0);
-        perror("Error receiving client name");
-        free(name);
-        return -1;
-    };
-    if (name_available(name) == -1) {
-        message.length = 0;
-        message.type = NOT_REGISTERED_RES_MSG;
-        send_message(client_socket_fd, &message, NULL);
-        free(name);
-        return -1;
-    }
-    message.length = 0;
-    message.type = REGISTERED_RES_MSG;
-    send_message(client_socket_fd, &message, NULL);
-
-    pthread_mutex_lock(&clients_mutex_sending_thread);
-    clients[slot_index] = malloc(sizeof(*clients));
-    clients[slot_index]->socket_fd = client_socket_fd;
-    clients[slot_index]->name = name;
-    clients[slot_index]->registered = 1;
-
-    struct epoll_event event;
-    event.events = EPOLLIN;
-    event.data.fd = client_socket_fd;
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_socket_fd, &event) == -1) {
-        make_log("Error epoll_ctl add", 0);
-        perror("Error epoll_ctl add");
-        pthread_mutex_unlock(&clients_mutex_sending_thread);
-        return -1;
-    }
-    pthread_cond_signal(&clients_cond_registered);
-    pthread_mutex_unlock(&clients_mutex_sending_thread);
-    make_log("accepted connection", 0);
-    return 0;
-}
-
-int name_available(char *name) {
-    for (int i = 0; i < MAX_CLIENTS; ++i) {
-        if (clients[i] != NULL && strcmp(clients[i]->name, name) == 0) {
-            return -1;
-        }
-    }
-    return 0;
-}
-
-int find_slot() {
-    for (int i = 0; i < MAX_CLIENTS; ++i) {
-        if (clients[i] == NULL) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-int setup_server_local_socket(int epoll_fd) {
-    int server_local_socket = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0);
-    if (server_local_socket == -1) {
-        perror("Error socket");
-        exit(EXIT_FAILURE);
-    }
-    struct sockaddr_un address;
-    memset(&address, 0, sizeof(struct sockaddr_un));
-    address.sun_family = AF_UNIX;
-    strncpy(address.sun_path, path, sizeof(address.sun_path) - 1);
-    if (bind(server_local_socket, (struct sockaddr *) &address, sizeof(address)) == -1) {
-        perror("Error bind");
-        exit(EXIT_FAILURE);
-    }
-    if (listen(server_local_socket, LISTEN_BACKLOG) == -1) {
-        perror("Error listen");
-        exit(EXIT_FAILURE);
-    }
-    struct epoll_event event;
-    event.events = EPOLLIN;
-    event.data.fd = server_local_socket;
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_local_socket, &event) == -1) {
-        perror("Error epoll_ctl add");
-        exit(EXIT_FAILURE);
-    }
-    return server_local_socket;
-}
-
-int setup_server_inet_socket(int epoll_fd) {
-    int server_inet_socket = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
-    if (server_inet_socket == -1) {
-        perror("Error socket");
-        exit(EXIT_FAILURE);
-    }
-    struct sockaddr_in address;
-    memset(&address, 0, sizeof(struct sockaddr_in));
-    address.sin_family = AF_INET;
-    address.sin_port = htobe16(port);
-    struct in_addr adr;
-    adr.s_addr = INADDR_ANY;
-    address.sin_addr = adr;
-    if (bind(server_inet_socket, (struct sockaddr *) &address, sizeof(address)) == -1) {
-        perror("Error bind");
-        exit(EXIT_FAILURE);
-    }
-    if (listen(server_inet_socket, LISTEN_BACKLOG - 40) == -1) {
-        perror("Error listen");
-        exit(EXIT_FAILURE);
-    }
-    struct epoll_event event;
-    event.events = EPOLLIN;
-    event.data.fd = server_inet_socket;
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_inet_socket, &event) == -1) {
-        perror("Error epoll_ctl add");
-        exit(EXIT_FAILURE);
-    }
-    return server_inet_socket;
-}
-
-int end = 1;
+int ping_end = 1;
 void *ping_thread(void *arg) {
-    pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
-    make_log("ping: started", 0);
-
-    while (end) {
+    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+    while (!ping_end) {
         sleep(PING_TIME);
         pthread_mutex_lock(&clients_mutex_socket_thread);
         pthread_mutex_lock(&clients_mutex_sending_thread);
-        make_log("pinging", 0);
+        make_log("Server: pinging", 0);
         for (int i = 0; i < MAX_CLIENTS; ++i) {
             if (clients[i] != NULL && clients[i]->registered == 1) {
                 char test[1];
@@ -496,26 +567,31 @@ void *ping_thread(void *arg) {
                 message.length = 0;
                 message.type = PING_REQUEST;
                 if (send_message(clients[i]->socket_fd, &message, NULL) == -1) {
+                    make_log("Server: error sending ping - closing connection to %d", clients[i]->socket_fd);
                     shutdown(clients[i]->socket_fd, SHUT_RDWR);
                     close(clients[i]->socket_fd);
+                    free(clients[i]->name);
                     free(clients[i]);
                     clients[i] = NULL;
                 } else {
                     usleep(PING_TIMEOUT);
-                    if (receive_message(clients[i]->socket_fd, &message) == NULL ||
+                    void *ping;
+                    if ((ping = receive_message(clients[i]->socket_fd, &message)) == NULL ||
                             message.type != PING_RESPONSE) {
+                        make_log("Server error receiving ping: - closing connection to %d", clients[i]->socket_fd);
                         shutdown(clients[i]->socket_fd, SHUT_RDWR);
                         close(clients[i]->socket_fd);
+                        free(clients[i]->name);
                         free(clients[i]);
                         clients[i] = NULL;
+                    } else {
+                        free(ping);
                     };
                 }
             }
         }
         pthread_mutex_unlock(&clients_mutex_socket_thread);
         pthread_mutex_unlock(&clients_mutex_sending_thread);
-        make_log("pinged", 0);
     }
-    make_log("ping: exited", 0);
     pthread_exit((void *) 0);
 }

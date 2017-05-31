@@ -7,8 +7,6 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-#include <endian.h>
-#include <float.h>
 #include "include/utils.h"
 #include "include/queue.h"
 
@@ -49,16 +47,33 @@ int main(int argc, char *argv[]) {
         server_socket_fd = connect_inet(address, port);
     }
     set_sig_int_handler(interrupted_unregister);
+
     if (try_register(client_name) == 0) {
         printf("Client registered with name %s\n", client_name);
         wait_for_requests();
+        shutdown(server_socket_fd, SHUT_RDWR);
+        close(server_socket_fd);
+        exit(EXIT_SUCCESS);
     } else {
-        fprintf(stderr, "Error: client could not get registered\n");
+        fprintf(stderr, "Error: client could not get registered with name %s\n", client_name);
+        shutdown(server_socket_fd, SHUT_RDWR);
+        close(server_socket_fd);
         exit(EXIT_FAILURE);
     };
-    shutdown(server_socket_fd, SHUT_RDWR);
-    close(server_socket_fd);
-    exit(EXIT_SUCCESS);
+}
+
+int validate_domain(char *domain) {
+    for (int i = 0; domain[i] != '\0'; ++i) {
+        domain[i] = (char) tolower(domain[i]);
+    }
+    if (strcmp(domain, "unix")  == 0) {
+        return 0;
+    } else if (strcmp(domain, "inet") == 0) {
+        return 1;
+    } else {
+        fprintf(stderr, "Argument validation error - unrecognized domain: %s\n", domain);
+        exit(EXIT_FAILURE);
+    }
 }
 
 void interrupted_unregister(int signo) {
@@ -84,7 +99,6 @@ int try_register(char *client_name) {
         fprintf(stderr, "Error: sending registration request message\n");
         return -1;
     };
-
     void *received_data;
     if ((received_data = receive_message(server_socket_fd, &message)) == NULL) {
         fprintf(stderr, "Error: receiving registration response message\n");
@@ -110,15 +124,14 @@ void wait_for_requests() {
         switch (message.type) {
             case OPERATION_REQ_MSG:
                 handle_operation_request(received_data);
-                free(received_data);
                 break;
             case PING_REQUEST:
                 handle_ping_request();
-                free(received_data);
                 break;
             default:
-                make_log("Client received unsupported message type", 0);
+                make_log("Client: received unsupported message type %d", message.type);
         }
+        free(received_data);
     }
 }
 
@@ -127,10 +140,7 @@ void handle_ping_request() {
     message.length = 0;
     message.type = PING_RESPONSE;
     if (send_message(server_socket_fd, &message, NULL) == -1) {
-        make_log("Error: client could not sent ping response", 0);
-        fprintf(stderr, "Error: client could not sent ping response\n");
-    } else {
-        make_log("Client sent ping response %d", PING_RESPONSE);
+        make_log("Client: error sending ping response\n", 0);
     };
 }
 
@@ -142,11 +152,8 @@ void handle_operation_request(void *received_data) {
         message.length = sizeof(result);
         message.type = OPERATION_RES_MSG;
         if (send_message(server_socket_fd, &message, &result) == -1) {
-            make_log("Error: client could not sent result of operation %d", result.operation_id);
-            fprintf(stderr, "Error: client could not sent result of operation %d\n", result.operation_id);
-        } else {
-            make_log("Client sent message %d", requested_operation->operation_id);
-        };
+            make_log("Client: Could not send result of operation %d", result.operation_id);
+        }
     }
 }
 
@@ -171,8 +178,7 @@ int get_result(Operation *operation, Operation *result) {
             }
             break;
         default:
-            make_log("Error: invalid operation number %d", operation->operation_type);
-            fprintf(stderr, "Error: invalid operation number %d\n", operation->operation_type);
+            make_log("Client: received unsupported operation type %d", operation->operation_type);
             return -1;
     }
     result->operation_id = operation->operation_id;
@@ -213,18 +219,4 @@ int connect_inet(char *ipv4_address, int port) {
         exit(EXIT_FAILURE);
     }
     return socket_fd;
-}
-
-int validate_domain(char *domain) {
-    for (int i = 0; domain[i] != '\0'; ++i) {
-        domain[i] = (char) tolower(domain[i]);
-    }
-    if (strcmp(domain, "unix")  == 0) {
-        return 0;
-    } else if (strcmp(domain, "inet") == 0) {
-        return 1;
-    } else {
-        fprintf(stderr, "Argument validation error - unrecognized domain: %s\n", domain);
-        exit(EXIT_FAILURE);
-    }
 }

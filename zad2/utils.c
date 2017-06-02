@@ -6,6 +6,7 @@
 #include <signal.h>
 #include <pthread.h>
 #include <sys/socket.h>
+#include <errno.h>
 #include "include/utils.h"
 #include "include/queue.h"
 
@@ -223,7 +224,10 @@ void *handle_recv_res(int received, int data_len, void *data, int data_type) {
         make_log("Receiving error - connection closed", 0);
         return NULL;
     }
-    else {
+    else if (errno == EAGAIN || errno == EWOULDBLOCK){
+        make_log("No more messages to receive", 0);
+        return NULL;
+    } else {
         make_log("Receiving error", 0);
         return NULL;
     }

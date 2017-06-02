@@ -18,8 +18,9 @@
 #define UNIX_PATH_MAX 108
 #define MAX_CLIENTS 20
 #define OPERATIONS_QUEUE_SIZE 10
-#define PING_TIME 4
+#define PING_TIME 5
 #define PING_TIMEOUT 10000
+#define EPOLL_WAIT_TIMEOUT 1000
 
 typedef struct Client {
     char *name;
@@ -56,8 +57,6 @@ void cancel_threads(int signo) ;
 
 void release_resources() ;
 
-void unregister_client(void *data, struct sockaddr *adr, socklen_t adr_len);
-
 void setup_inet_socket(int epoll_fd) ;
 
 void setup_local_socket(int epoll_fd) ;
@@ -66,17 +65,11 @@ int try_register_client(int socket, char *name, struct sockaddr *adr, socklen_t 
 
 void handle_operation_result(void *received_data, struct sockaddr *adr, socklen_t adr_len) ;
 
-Client *find_client(struct sockaddr *adr, socklen_t adr_len) ;
-
 int find_client_index(struct sockaddr *adr, socklen_t adr_len) ;
 
-void rec_messages(int socket, int *responded);
+void receive_responses(int socket, int *responded) ;
 
-void remove_client(int index);
-
-void peek_message(int socket, int *responded) ;
-
-void check_responses(int socket, int *responded) ;
+void unregister_client(struct sockaddr *adr, socklen_t adr_len) ;
 
 pthread_t terminal_pthread;
 pthread_t socket_pthread;
@@ -266,7 +259,7 @@ void *socket_thread(void *arg) {
     int waited_fds_num;
     while (!socket_thread_end) {
         pthread_mutex_lock(&clients_mutex_socket_thread);
-        if ((waited_fds_num = epoll_wait(epoll_fd, events, MAX_CLIENTS + 2, PING_TIME * 1000)) == -1) {
+        if ((waited_fds_num = epoll_wait(epoll_fd, events, MAX_CLIENTS + 2, EPOLL_WAIT_TIMEOUT)) == -1) {
             make_log("Server: error epoll_wait", 0);
             perror("Error epoll_wait");
             exit(EXIT_FAILURE);
@@ -361,7 +354,11 @@ void handle_request(int socket_fd) {
                 break;
             case UNREGISTER_REQ_MSG:
                 make_log("Server: received unregister request", 0);
-                unregister_client(received_data, adr, adr_len);
+                pthread_mutex_lock(&clients_mutex_sending_thread);
+                unregister_client(adr, adr_len);
+                pthread_mutex_unlock(&clients_mutex_sending_thread);
+                free(received_data);
+                free(adr);
                 break;
             default:
                 make_log("Server: received unsupported request type %d", message.type);
@@ -441,46 +438,30 @@ void handle_operation_result(void *received_data, struct sockaddr *adr, socklen_
     char buf[128];
     to_string(result, buf);
 
-    Client *client;
-    if ((client = find_client(adr, adr_len)) != NULL) {
+    int index;
+    pthread_mutex_lock(&clients_mutex_sending_thread);
+    if ((index = find_client_index(adr, adr_len)) != -1) {
         printf("result of %d. %s = %lf from %s\n", result->operation_id, buf,
-               result->result, client->name);
+               result->result, clients[index]->name);
     } else {
         make_log("Server: received operation result %d from unregistered client", (int) result->result);
     }
+    pthread_mutex_unlock(&clients_mutex_sending_thread);
     free(received_data);
     free(adr);
 }
 
-Client *find_client(struct sockaddr *adr, socklen_t adr_len) {
-    pthread_mutex_lock(&clients_mutex_sending_thread);
-    for (int i = 0; i < MAX_CLIENTS; ++i) {
-        if (clients[i] != NULL && memcmp(clients[i]->adr, adr,
-                                         adr_len > clients[i]->adr_len ? adr_len : clients[i]->adr_len) == 0) {
-            pthread_mutex_unlock(&clients_mutex_sending_thread);
-            return clients[i];
-        }
+void unregister_client(struct sockaddr *adr, socklen_t adr_len) {
+    int index;
+    if ((index = find_client_index(adr, adr_len)) != -1) {
+        char buf[CLIENT_MAX_NAME + 128];
+        sprintf(buf, "Server: unregistering %s", clients[index]->name);
+        make_log(buf, 0);
+        free(clients[index]->adr);
+        free(clients[index]->name);
+        free(clients[index]);
+        clients[index] = NULL;
     }
-    pthread_mutex_unlock(&clients_mutex_sending_thread);
-    return NULL;
-}
-
-void unregister_client(void *data, struct sockaddr *adr, socklen_t adr_len) {
-    pthread_mutex_lock(&clients_mutex_sending_thread);
-    for (int i = 0; i < MAX_CLIENTS; ++i) {
-        if (clients[i] != NULL && memcmp(clients[i]->adr, adr,
-                                         adr_len > clients[i]->adr_len ? adr_len : clients[i]->adr_len) == 0) {
-            make_log("Server: unregistering client", 0);
-            free(clients[i]->adr);
-            free(clients[i]->name);
-            free(clients[i]);
-            clients[i] = NULL;
-            break;
-        }
-    }
-    free(data);
-    free(adr);
-    pthread_mutex_unlock(&clients_mutex_sending_thread);
 }
 
 int sending_end = 0;
@@ -546,13 +527,12 @@ int ping_end = 0;
 void *ping_thread(void *arg) {
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
-    int responded[MAX_CLIENTS];
+    int *responded = calloc(MAX_CLIENTS, sizeof(*responded));
     while (!ping_end) {
         sleep(PING_TIME);
         pthread_mutex_lock(&clients_mutex_socket_thread);
         pthread_mutex_lock(&clients_mutex_sending_thread);
         make_log("Server: pinging", 0);
-        usleep(PING_TIMEOUT);
         for (int i = 0; i < MAX_CLIENTS; ++i) {
             if (clients[i] != NULL && responded[i] == 0) {
                 char test[1];
@@ -560,19 +540,19 @@ void *ping_thread(void *arg) {
                 message.length = 0;
                 message.type = PING_REQUEST;
                 if (send_message_to(clients[i]->socket_fd, &message, test, clients[i]->adr, clients[i]->adr_len) == -1) {
-                    remove_client(i);
+                    make_log("Server: unregistering client due to send message error", 0);
+                    unregister_client(clients[i]->adr, clients[i]->adr_len);
                 }
             }
         }
         usleep(PING_TIMEOUT);
-        check_responses(local_socket, responded);
-        check_responses(inet_socket, responded);
+        receive_responses(local_socket, responded);
+        receive_responses(inet_socket, responded);
         for (int i = 0; i < MAX_CLIENTS; ++i) {
             if (clients[i] != NULL && responded[i] == 0) {
-                remove_client(i);
-            } else {
-                responded[i] = 0;
+                unregister_client(clients[i]->adr, clients[i]->adr_len);
             }
+            responded[i] = 0;
         }
         pthread_mutex_unlock(&clients_mutex_socket_thread);
         pthread_mutex_unlock(&clients_mutex_sending_thread);
@@ -580,36 +560,27 @@ void *ping_thread(void *arg) {
     pthread_exit((void *) 0);
 }
 
-void check_responses(int socket, int *responded) {
-    struct sockaddr adr;
+void receive_responses(int socket, int *responded) {
+    struct sockaddr *adr = calloc(1, sizeof(*adr));
     socklen_t adr_len;
     Message message;
     void *data;
-    while ((data = receive_message_from(socket, &message, &adr, &adr_len)) != NULL) {
+    while ((data = receive_message_from(socket, &message, adr, &adr_len)) != NULL) {
         int index;
-        if ((index = find_client_index(&adr, adr_len)) != -1 && message.type == PING_RESPONSE) {
+        if ((index = find_client_index(adr, adr_len)) != -1 && message.type == PING_RESPONSE) {
             responded[index] = 1;
         }
         free(data);
+        memset(adr, '\0', sizeof(*adr));
     }
+    free(adr);
 }
 
 int find_client_index(struct sockaddr *adr, socklen_t adr_len) {
     for (int i = 0; i < MAX_CLIENTS; ++i) {
-        if (clients[i] != NULL && memcmp(clients[i]->adr, adr,
-                                         adr_len > clients[i]->adr_len ? adr_len : clients[i]->adr_len) == 0) {
+        if (clients[i] != NULL && clients[i]->adr_len == adr_len && memcmp(clients[i]->adr, adr, adr_len) == 0) {
             return i;
         }
     }
     return -1;
-}
-
-void remove_client(int index) {
-    char buf[CLIENT_MAX_NAME + 128];
-    sprintf(buf, "Server: ping closing connection to %s", clients[index]->name);
-    make_log(buf, 0);
-    free(clients[index]->adr);
-    free(clients[index]->name);
-    free(clients[index]);
-    clients[index] = NULL;
 }

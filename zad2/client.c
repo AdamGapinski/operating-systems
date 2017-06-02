@@ -29,6 +29,7 @@ int try_register(char *client_name) ;
 void interrupted_unregister(int signo) ;
 
 int server_socket_fd = -1;
+int client_id = -1;
 
 int main(int argc, char *argv[]) {
     char *client_name = parse_text_arg(argc, argv, 1, "client name");
@@ -78,6 +79,7 @@ void interrupted_unregister(int signo) {
     Message message;
     message.type = UNREGISTER_REQ_MSG;
     message.length = 0;
+    message.client_id = client_id;
     if (send_message(server_socket_fd, &message, NULL) == -1) {
         perror("Error: sending unregister request");
         close(server_socket_fd);
@@ -104,6 +106,7 @@ int try_register(char *client_name) {
 
     switch (message.type) {
         case REGISTERED_RES_MSG:
+            client_id = message.client_id;
             return 0;
         case NOT_REGISTERED_RES_MSG:
             return -1;
@@ -135,6 +138,7 @@ void handle_ping_request() {
     Message message;
     message.length = 0;
     message.type = PING_RESPONSE;
+    message.client_id = client_id;
     if (send_message(server_socket_fd, &message, NULL) == -1) {
         make_log("Client: error sending ping response\n", 0);
     };
@@ -147,6 +151,7 @@ void handle_operation_request(void *received_data) {
         Message message;
         message.length = sizeof(result);
         message.type = OPERATION_RES_MSG;
+        message.client_id = client_id;
         if (send_message(server_socket_fd, &message, &result) == -1) {
             make_log("Client: Could not send result of operation %d", result.operation_id);
         }

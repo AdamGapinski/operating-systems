@@ -59,15 +59,14 @@ int send_message_to(int socket_fd, Message *message, void *data, struct sockaddr
     size_t msg_bytes = sizeof(*message) + message->length;
     void *msg_structure_pointer = calloc(msg_bytes, 1);
     Message *msg_data = (Message *) msg_structure_pointer;
-    msg_data->type = message->type;
-    msg_data->length = message->length;
+    msg_data->type = htobe16(message->type);
+    msg_data->length = htobe16(message->length);
+    msg_data->client_id = htobe32(message->client_id);
     void *data_pointer = ((char *) msg_data) + sizeof(*msg_data);
     memcpy(data_pointer, data, (size_t) message->length);
 
     data_logging(message->type, data_pointer, 1);
 
-    msg_data->type = htobe16(message->type);
-    msg_data->length = htobe16(message->length);
     if (sendto(socket_fd, msg_structure_pointer, msg_bytes, MSG_DONTWAIT, adr, adr_len) != msg_bytes) {
         make_log("sending error", 0);
         return -1;
@@ -80,15 +79,14 @@ int send_message(int socket_fd, Message *message, void *data) {
     size_t msg_bytes = sizeof(*message) + message->length;
     void *msg_structure_pointer = calloc(msg_bytes, 1);
     Message *msg_data = (Message *) msg_structure_pointer;
-    msg_data->type = message->type;
-    msg_data->length = message->length;
+    msg_data->type = htobe16(message->type);
+    msg_data->length = htobe16(message->length);
+    msg_data->client_id = htobe32(message->client_id);
     void *data_pointer = ((char *) msg_data) + sizeof(*msg_data);
     memcpy(data_pointer, data, (size_t) message->length);
 
     data_logging(message->type, data_pointer, 1);
 
-    msg_data->type = htobe16(message->type);
-    msg_data->length = htobe16(message->length);
     if (send(socket_fd, msg_structure_pointer, msg_bytes, 0) != msg_bytes) {
         make_log("sending error", 0);
         return -1;
@@ -146,9 +144,11 @@ void *receive_message_from(int socket_fd, Message *message, struct sockaddr* adr
     }
     message->type = be16toh(message->type);
     message->length = be16toh(message->length);
+    message->client_id = be32toh(message->client_id);
 
     void *data;
     void *data_buf;
+    void *data_pointer;
     switch(message->type) {
         case NAME_REQ_MSG:
         case OPERATION_REQ_MSG:
@@ -156,7 +156,8 @@ void *receive_message_from(int socket_fd, Message *message, struct sockaddr* adr
             data_buf = calloc(msg_header_size + message->length, 1);
             data = calloc((size_t) message->length, 1);
             received = (int) recvfrom(socket_fd, data_buf, msg_header_size + message->length, MSG_DONTWAIT, adr, adr_len);
-            memcpy(data, ((char *) data_buf) + msg_header_size, (size_t) message->length);
+            data_pointer = ((char *) data_buf) + msg_header_size;
+            memcpy(data, data_pointer, (size_t) message->length);
             free(data_buf);
             return handle_recv_res(received, (int) (msg_header_size + message->length), data, message->type);
         case PING_REQUEST:
@@ -184,9 +185,11 @@ void *receive_message(int socket_fd, Message *message) {
     }
     message->type = be16toh(message->type);
     message->length = be16toh(message->length);
+    message->client_id = be32toh(message->client_id);
 
     void *data;
     void *data_buf;
+    void *data_pointer;
     switch(message->type) {
         case NAME_REQ_MSG:
         case OPERATION_REQ_MSG:
@@ -194,7 +197,8 @@ void *receive_message(int socket_fd, Message *message) {
             data_buf = calloc(msg_header_size + message->length, 1);
             data = calloc((size_t) message->length, 1);
             received = (int) recv(socket_fd, data_buf, msg_header_size + message->length, 0);
-            memcpy(data, ((char *) data_buf) + msg_header_size, (size_t) message->length);
+            data_pointer = ((char *) data_buf) + msg_header_size;
+            memcpy(data, data_pointer, (size_t) message->length);
             free(data_buf);
             return handle_recv_res(received, (int) (msg_header_size + message->length), data, message->type);
         case PING_REQUEST:

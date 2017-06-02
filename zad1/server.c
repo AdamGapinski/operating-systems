@@ -79,7 +79,7 @@ in_port_t port;
 char *path;
 int server_local_socket;
 int server_inet_socket;
-int binded_local_socket = -1;
+int binded_local_socket = 0;
 int operation_counter = 0;
 
 Queue *operations;
@@ -400,7 +400,7 @@ int try_register_client(int epoll_fd, int server_socket) {
     };
 
     pthread_mutex_lock(&clients_mutex_sending_thread);
-    clients[slot_index] = malloc(sizeof(*clients));
+    clients[slot_index] = malloc(sizeof(*clients[slot_index]));
     clients[slot_index]->socket_fd = client_socket_fd;
     clients[slot_index]->name = name;
     clients[slot_index]->registered = 1;

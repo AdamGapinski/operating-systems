@@ -17,6 +17,7 @@
 typedef struct Message {
     short type;
     short length;
+    unsigned int client_id;
 } Message;
 
 char *parse_text_arg(int argc, char **argv, int arg_num, char *des);

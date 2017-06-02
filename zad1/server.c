@@ -77,6 +77,8 @@ pthread_t ping_pthread;
 
 in_port_t port;
 char *path;
+int server_local_socket;
+int server_inet_socket;
 int binded_local_socket = -1;
 int operation_counter = 0;
 
@@ -119,6 +121,10 @@ void release_resources() {
             close(clients[i]->socket_fd);
         }
     }
+    shutdown(server_local_socket, SHUT_RDWR);
+    shutdown(server_inet_socket, SHUT_RDWR);
+    close(server_local_socket);
+    close(server_inet_socket);
 }
 
 void cancel_threads(int signo) {
@@ -253,8 +259,8 @@ void *socket_thread(void *arg) {
         perror("Error epoll_create");
         exit(EXIT_FAILURE);
     }
-    int server_local_socket = setup_server_local_socket(epoll_fd);
-    int server_inet_socket = setup_server_inet_socket(epoll_fd);
+    server_local_socket = setup_server_local_socket(epoll_fd);
+    server_inet_socket = setup_server_inet_socket(epoll_fd);
     struct epoll_event events[MAX_CLIENTS];
     int waited_fds_num;
     while (!socket_thread_end) {
@@ -492,7 +498,7 @@ void unregister_client(int socket_fd) {
     pthread_mutex_lock(&clients_mutex_sending_thread);
     for (int i = 0; i < MAX_CLIENTS; ++i) {
         if (clients[i] != NULL && clients[i]->socket_fd == socket_fd) {
-            make_log("Server: shutting down connection and unregistering %d. %s", clients[i]->socket_fd);
+            make_log("Server: shutting down connection and unregistering %d", clients[i]->socket_fd);
             shutdown(socket_fd, SHUT_RDWR);
             close(socket_fd);
             free(clients[i]->name);

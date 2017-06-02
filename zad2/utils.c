@@ -54,6 +54,27 @@ long get_thread_id() {
     return syscall(SYS_gettid);
 }
 
+int send_message_to(int socket_fd, Message *message, void *data, struct sockaddr* adr, socklen_t adr_len) {
+    size_t msg_bytes = sizeof(*message) + message->length;
+    void *msg_structure_pointer = calloc(msg_bytes, 1);
+    Message *msg_data = (Message *) msg_structure_pointer;
+    msg_data->type = message->type;
+    msg_data->length = message->length;
+    void *data_pointer = ((char *) msg_data) + sizeof(*msg_data);
+    memcpy(data_pointer, data, (size_t) message->length);
+
+    data_logging(message->type, data_pointer, 1);
+
+    msg_data->type = htobe16(message->type);
+    msg_data->length = htobe16(message->length);
+    if (sendto(socket_fd, msg_structure_pointer, msg_bytes, MSG_DONTWAIT, adr, adr_len) != msg_bytes) {
+        make_log("sending error", 0);
+        return -1;
+    }
+    free(msg_structure_pointer);
+    return 0;
+}
+
 int send_message(int socket_fd, Message *message, void *data) {
     size_t msg_bytes = sizeof(*message) + message->length;
     void *msg_structure_pointer = calloc(msg_bytes, 1);
@@ -67,7 +88,7 @@ int send_message(int socket_fd, Message *message, void *data) {
 
     msg_data->type = htobe16(message->type);
     msg_data->length = htobe16(message->length);
-    if (send(socket_fd, msg_structure_pointer, msg_bytes, MSG_DONTWAIT | MSG_NOSIGNAL) != msg_bytes) {
+    if (send(socket_fd, msg_structure_pointer, msg_bytes, 0) != msg_bytes) {
         make_log("sending error", 0);
         return -1;
     }
@@ -85,14 +106,13 @@ void data_logging(int data_type, void *data, int sending) {
         case NAME_REQ_MSG:
             text = data;
             char buf[CLIENT_MAX_NAME + 10];
-            sprintf(buf, "name: %s", text);
+            sprintf(buf, "name %s", text);
             make_log(buf, 0);
             break;
         case OPERATION_REQ_MSG:
         case OPERATION_RES_MSG:
             operation = data;
             make_log("operation: operation id %d", operation->operation_id);
-            make_log("operation: client id %d", operation->client_id);
             make_log("operation: operation type %d", operation->operation_type);
             make_log("operation: first argument %d", (int) operation->first_argument);
             make_log("operation: second argument %d", (int) operation->second_argument);
@@ -117,31 +137,78 @@ void data_logging(int data_type, void *data, int sending) {
     }
 }
 
-void *receive_message(int socket_fd, Message *message) {
-    int received = (int) recv(socket_fd, message, sizeof(*message), MSG_WAITALL);
-    if (handle_recv_res(received, sizeof(*message), message, -1) == NULL) {
+void *receive_message_from(int socket_fd, Message *message, struct sockaddr* adr, socklen_t *adr_len) {
+    size_t msg_header_size = sizeof(*message);
+    int received = (int) recvfrom(socket_fd, message, msg_header_size, MSG_PEEK | MSG_DONTWAIT, adr, adr_len);
+    if (handle_recv_res(received, (int) msg_header_size, message, -1) == NULL) {
         return NULL;
     }
     message->type = be16toh(message->type);
     message->length = be16toh(message->length);
 
     void *data;
+    void *data_buf;
     switch(message->type) {
         case NAME_REQ_MSG:
         case OPERATION_REQ_MSG:
         case OPERATION_RES_MSG:
+            data_buf = calloc(msg_header_size + message->length, 1);
             data = calloc((size_t) message->length, 1);
-            received = (int) recv(socket_fd, data, (size_t) message->length, MSG_WAITALL);
-            return handle_recv_res(received, message->length, data, message->type);
+            received = (int) recvfrom(socket_fd, data_buf, msg_header_size + message->length, MSG_DONTWAIT, adr, adr_len);
+            memcpy(data, ((char *) data_buf) + msg_header_size, (size_t) message->length);
+            free(data_buf);
+            return handle_recv_res(received, (int) (msg_header_size + message->length), data, message->type);
         case PING_REQUEST:
         case PING_RESPONSE:
         case REGISTERED_RES_MSG:
         case NOT_REGISTERED_RES_MSG:
         case UNREGISTER_REQ_MSG:
             data = calloc(1, 1);
+            //receive message header from socket receiving queue
+            recvfrom(socket_fd, NULL, msg_header_size, MSG_DONTWAIT, adr, adr_len);
             return handle_recv_res(0, message->length, data, message->type);
         default:
             make_log("Receiving error unsupported message type", 0);
+            //receive message header from socket receiving queue
+            recvfrom(socket_fd, NULL, msg_header_size, MSG_DONTWAIT, adr, adr_len);
+            return NULL;
+    }
+}
+
+void *receive_message(int socket_fd, Message *message) {
+    size_t msg_header_size = sizeof(*message);
+    int received = (int) recv(socket_fd, message, msg_header_size, MSG_PEEK);
+    if (handle_recv_res(received, (int) msg_header_size, message, -1) == NULL) {
+        return NULL;
+    }
+    message->type = be16toh(message->type);
+    message->length = be16toh(message->length);
+
+    void *data;
+    void *data_buf;
+    switch(message->type) {
+        case NAME_REQ_MSG:
+        case OPERATION_REQ_MSG:
+        case OPERATION_RES_MSG:
+            data_buf = calloc(msg_header_size + message->length, 1);
+            data = calloc((size_t) message->length, 1);
+            received = (int) recv(socket_fd, data_buf, msg_header_size + message->length, 0);
+            memcpy(data, ((char *) data_buf) + msg_header_size, (size_t) message->length);
+            free(data_buf);
+            return handle_recv_res(received, (int) (msg_header_size + message->length), data, message->type);
+        case PING_REQUEST:
+        case PING_RESPONSE:
+        case REGISTERED_RES_MSG:
+        case NOT_REGISTERED_RES_MSG:
+        case UNREGISTER_REQ_MSG:
+            data = calloc(1, 1);
+            //receive message header from socket receiving queue
+            recv(socket_fd, NULL, msg_header_size, 0);
+            return handle_recv_res(0, message->length, data, message->type);
+        default:
+            make_log("Receiving error unsupported message type", 0);
+            //receive message header from socket receiving queue
+            recv(socket_fd, NULL, msg_header_size, 0);
             return NULL;
     }
 }

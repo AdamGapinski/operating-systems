@@ -232,7 +232,9 @@ void *handle_recv_res(int received, int data_len, void *data, int data_type) {
         make_log("No more messages to receive", 0);
         return NULL;
     } else {
-        make_log("Receiving error", 0);
+        char buf[200];
+        sprintf(buf, "Receiving error %s", strerror(errno));
+        make_log(buf, 0);
         return NULL;
     }
 }

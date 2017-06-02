@@ -10,13 +10,11 @@ Queue *init_queue(int size) {
     return queue;
 }
 
-Operation *init_operation(int operation, double first_argument, double second_argument,
-                          int client_id, int operation_id) {
+Operation *init_operation(int operation, double first_argument, double second_argument, int operation_id) {
     Operation *result = malloc(sizeof(*result));
     result->operation_type = operation;
     result->first_argument = first_argument;
     result->second_argument = second_argument;
-    result->client_id = client_id;
     result->operation_id = operation_id;
     return result;
 }

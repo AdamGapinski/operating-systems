@@ -11,7 +11,6 @@ typedef struct Operation {
     double second_argument;
     double result;
     int operation_type;
-    int client_id;
     int operation_id;
 } Operation;
 
@@ -23,8 +22,7 @@ typedef struct Queue {
 } Queue;
 
 Queue *init_queue(int size);
-Operation *init_operation(int operation, double first_argument, double second_argument,
-                          int client_id, int operation_id);
+Operation *init_operation(int operation, double first_argument, double second_argument, int operation_id);
 int queue_empty(Queue *queue);
 int queue_full(Queue *queue);
 int enqueue(Queue *queue, Operation *value);

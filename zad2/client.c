@@ -12,13 +12,13 @@
 
 int validate_domain(char *domain);
 
-int connect_local(char *socket_path) ;
+int setup_local(char *socket_path) ;
 
 void wait_for_requests();
 
 int get_result(Operation *operation, Operation *result) ;
 
-int connect_inet(char *address, int port) ;
+int setup_inet(char *address, int port) ;
 
 void handle_operation_request(void *received_data);
 
@@ -40,23 +40,21 @@ int main(int argc, char *argv[]) {
     int domain_option = validate_domain(domain);
     if (domain_option == 0) {
         char *socket_path = parse_text_arg(argc, argv, 3, "unix socket path");
-        server_socket_fd = connect_local(socket_path);
+        server_socket_fd = setup_local(socket_path);
     } else if (domain_option == 1){
         char *address = parse_text_arg(argc, argv, 3, "IPv4 address");
         int port = parse_unsigned_int_arg(argc, argv, 4, "port number");
-        server_socket_fd = connect_inet(address, port);
+        server_socket_fd = setup_inet(address, port);
     }
     set_sig_int_handler(interrupted_unregister);
 
     if (try_register(client_name) == 0) {
         printf("Client registered with name %s\n", client_name);
         wait_for_requests();
-        shutdown(server_socket_fd, SHUT_RDWR);
         close(server_socket_fd);
         exit(EXIT_SUCCESS);
     } else {
         fprintf(stderr, "Error: client could not get registered with name %s\n", client_name);
-        shutdown(server_socket_fd, SHUT_RDWR);
         close(server_socket_fd);
         exit(EXIT_FAILURE);
     };
@@ -82,11 +80,9 @@ void interrupted_unregister(int signo) {
     message.length = 0;
     if (send_message(server_socket_fd, &message, NULL) == -1) {
         perror("Error: sending unregister request");
-        shutdown(server_socket_fd, SHUT_RDWR);
         close(server_socket_fd);
         exit(EXIT_FAILURE);
     };
-    shutdown(server_socket_fd, SHUT_RDWR);
     close(server_socket_fd);
     exit(EXIT_SUCCESS);
 }
@@ -184,26 +180,37 @@ int get_result(Operation *operation, Operation *result) {
     result->operation_id = operation->operation_id;
     result->first_argument = operation->first_argument;
     result->second_argument = operation->second_argument;
-    result->client_id = operation->client_id;
     result->operation_type = operation->operation_type;
     return 0;
 }
 
-int connect_local(char *socket_path) {
-    int socket_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+int setup_local(char *socket_path) {
+    int socket_fd;
+    if ((socket_fd = socket(AF_UNIX, SOCK_DGRAM, 0)) == -1) {
+        perror("Creating socket error");
+        exit(EXIT_FAILURE);
+    }
     struct sockaddr_un address;
     memset(&address, 0, sizeof(struct sockaddr_un));
     address.sun_family = AF_UNIX;
     strcpy(address.sun_path, socket_path);
+    if (bind(socket_fd, (struct sockaddr *) &address, sizeof(sa_family_t)) == -1) {
+        perror("Binding socket error");
+        exit(EXIT_FAILURE);
+    }
     if (connect(socket_fd, (struct sockaddr *) &address, sizeof(address)) == -1) {
-        perror("Connection error");
+        perror("Setting socket error");
         exit(EXIT_FAILURE);
     }
     return socket_fd;
 }
 
-int connect_inet(char *ipv4_address, int port) {
-    int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+int setup_inet(char *ipv4_address, int port) {
+    int socket_fd;
+    if ((socket_fd = socket(AF_INET, SOCK_DGRAM, 0)) == -1) {
+        perror("Creating socket error");
+        exit(EXIT_FAILURE);
+    }
     struct sockaddr_in address;
     memset(&address, 0, sizeof(struct sockaddr_in));
     address.sin_family = AF_INET;
@@ -215,7 +222,7 @@ int connect_inet(char *ipv4_address, int port) {
     }
     address.sin_addr = iadr;
     if (connect(socket_fd, (struct sockaddr *) &address, sizeof(address)) == -1) {
-        perror("Connection error");
+        perror("Setting socket error");
         exit(EXIT_FAILURE);
     }
     return socket_fd;

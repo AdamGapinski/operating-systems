@@ -339,7 +339,7 @@ int setup_server_inet_socket(int epoll_fd) {
         make_log("Server: error binding inet socket, errno: %d", errno);
         exit(EXIT_FAILURE);
     }
-    if (listen(socket_fd, LISTEN_BACKLOG - 40) == -1) {
+    if (listen(socket_fd, LISTEN_BACKLOG) == -1) {
         perror("Error setting socket");
         make_log("Server: error setting listening inet socket, errno: %d", errno);
         exit(EXIT_FAILURE);
@@ -368,9 +368,11 @@ int try_register_client(int epoll_fd, int server_socket) {
     }
     Message message;
     char *name;
-    if ((name = receive_message(client_socket_fd, &message)) == NULL && message.type != NAME_REQ_MSG) {
+    if ((name = receive_message(client_socket_fd, &message)) == NULL || message.type != NAME_REQ_MSG) {
+        if (name != NULL) {
+            free(name);
+        }
         make_log("Server: error receiving client name", 0);
-        free(name);
         shutdown(client_socket_fd, SHUT_RDWR);
         close(client_socket_fd);
         return -1;
@@ -412,20 +414,26 @@ int try_register_client(int epoll_fd, int server_socket) {
 }
 
 int name_available(char *name) {
+    pthread_mutex_lock(&clients_mutex_sending_thread);
     for (int i = 0; i < MAX_CLIENTS; ++i) {
         if (clients[i] != NULL && strcmp(clients[i]->name, name) == 0) {
+            pthread_mutex_unlock(&clients_mutex_sending_thread);
             return -1;
         }
     }
+    pthread_mutex_unlock(&clients_mutex_sending_thread);
     return 0;
 }
 
 int find_slot() {
+    pthread_mutex_lock(&clients_mutex_sending_thread);
     for (int i = 0; i < MAX_CLIENTS; ++i) {
         if (clients[i] == NULL) {
+            pthread_mutex_unlock(&clients_mutex_sending_thread);
             return i;
         }
     }
+    pthread_mutex_unlock(&clients_mutex_sending_thread);
     return -1;
 }
 
@@ -469,15 +477,19 @@ void handle_operation_result(void *received_data) {
 }
 
 Client *find_client(int socket_fd) {
+    pthread_mutex_lock(&clients_mutex_sending_thread);
     for (int i = 0; i < MAX_CLIENTS; ++i) {
         if (clients[i] != NULL && clients[i]->socket_fd == socket_fd) {
+            pthread_mutex_unlock(&clients_mutex_sending_thread);
             return clients[i];
         }
     }
+    pthread_mutex_unlock(&clients_mutex_sending_thread);
     return NULL;
 }
 
 void unregister_client(int socket_fd) {
+    pthread_mutex_lock(&clients_mutex_sending_thread);
     for (int i = 0; i < MAX_CLIENTS; ++i) {
         if (clients[i] != NULL && clients[i]->socket_fd == socket_fd) {
             make_log("Server: shutting down connection and unregistering %d. %s", clients[i]->socket_fd);
@@ -486,8 +498,10 @@ void unregister_client(int socket_fd) {
             free(clients[i]->name);
             free(clients[i]);
             clients[i] = NULL;
+            break;
         }
     }
+    pthread_mutex_unlock(&clients_mutex_sending_thread);
 }
 
 int sending_end = 0;
@@ -548,7 +562,7 @@ void send_operation(Operation *operation) {
     } while (!sent);
 }
 
-int ping_end = 1;
+int ping_end = 0;
 void *ping_thread(void *arg) {
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);

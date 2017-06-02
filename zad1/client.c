@@ -191,7 +191,11 @@ int get_result(Operation *operation, Operation *result) {
 }
 
 int connect_local(char *socket_path) {
-    int socket_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    int socket_fd;
+    if ((socket_fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
+        perror("Creating socket error");
+        exit(EXIT_FAILURE);
+    }
     struct sockaddr_un address;
     memset(&address, 0, sizeof(struct sockaddr_un));
     address.sun_family = AF_UNIX;
@@ -204,7 +208,11 @@ int connect_local(char *socket_path) {
 }
 
 int connect_inet(char *ipv4_address, int port) {
-    int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+    int socket_fd;
+    if ((socket_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+        perror("Creating socket error");
+        exit(EXIT_FAILURE);
+    }
     struct sockaddr_in address;
     memset(&address, 0, sizeof(struct sockaddr_in));
     address.sin_family = AF_INET;

@@ -25,6 +25,6 @@ $(ODIR)/queue.o: queue.c $(IDIR)/queue.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f server client *.o $(ODIR)/*.o
+	rm -f server client logs *.o $(ODIR)/*.o
 
 .PHONY: clean

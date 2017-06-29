@@ -10,11 +10,7 @@ void create_threads(int signal);
 
 void *start_thread(void *signal) ;
 
-void join_threads();
-
 int find_text(char *text);
-
-void cancel_threads_async();
 
 int read_data();
 
@@ -30,8 +26,6 @@ void set_thread_mask(int signal) ;
 
 void processSigArg(int sig);
 
-void routine(void *arg);
-
 typedef struct record_str {
     int id;
     char text[RECORD_SIZE - sizeof(int)];
@@ -40,37 +34,38 @@ typedef struct record_str {
 pthread_t **threads;
 pthread_key_t record_buffer_data_key;
 const int threads_num = 10;
-const int records_num = 2;
+const int records_num = 5;
 int fd;
 char *text_key = "aaa";
+char *filename = "testfile";
 pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t exit_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t handler_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 int main(int argc, char *argv[]) {
     char *signal_name = parseTextArg(argc, argv, 1, "name of signal");
+    int test = parseUnsignedIntArg(argc, argv, 2, "test number");
+    if (argc > 3) {
+        filename = parseTextArg(argc, argv, 3, "file name");
+        text_key = parseTextArg(argc, argv, 4, "text key to find");
+    }
     int signal = parse_signal_name(signal_name);
-    int test = 0;
-    if (signal != SIGFPE) {
-        test = parseUnsignedIntArg(argc, argv, 2, "test number");
-    };
-    fd = open_file("/dev/urandom");
+    fd = open_file(filename);
+
+
     pthread_key_create(&record_buffer_data_key, destructor);
-    printf("Main thread PID %d\tTID %ld\n", getpid(), get_thread_id());
 
+    printf("Main thread: PID %d\tTID %ld\n", getpid(), get_thread_id());
+    pthread_mutex_lock(&exit_mutex);
     make_test(signal, signal_name, test);
-    printf("Main thread: test done, joining threads\n");
-    join_threads();
-    pthread_mutex_destroy(&file_mutex);
-    pthread_key_delete(record_buffer_data_key);
-    close(fd);
-    return 0;
-}
-
-void routine(void *arg) {
-    printf("Thread %ld exited.\n", get_thread_id());
+    pthread_mutex_unlock(&exit_mutex);
+    pthread_exit((void *) 0);
 }
 
 void signal_handler(int signo) {
-    printf("Received %d signal. PID %d\tTID %ld\n", signo, getpid(), get_thread_id());
+    pthread_mutex_lock(&handler_mutex);
+    printf("Received %s signal PID %d\tTID %ld\n", strsignal(signo), getpid(), get_thread_id());
+    pthread_mutex_unlock(&handler_mutex);
 }
 
 void set_signal_handler(int signal) {
@@ -107,6 +102,7 @@ void make_test(int signal, char *signal_name, int test) {
             break;
         case 4:
             printf("Sending %s masked by thread to thread\n", signal_name);
+            usleep(100000);
             pthread_kill(*threads[0], signal);
             break;
         case 5:
@@ -138,7 +134,7 @@ void create_threads(int signal) {
     threads = calloc((size_t) threads_num, sizeof(*threads));
     pthread_attr_t attr;
     pthread_attr_init(&attr);
-    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
     for (int i = 0; i < threads_num; ++i) {
         pthread_t *thread = malloc(sizeof(*thread));
         threads[i] = thread;
@@ -153,41 +149,26 @@ void create_threads(int signal) {
     pthread_attr_destroy(&attr);
 }
 
-void join_threads() {
-    for (int i = 0; i < threads_num; ++i) {
-        void *ret;
-        int error_num;
-        if ((error_num = pthread_join(*threads[i], &ret)) != 0) {
-            fprintf(stderr, "Error joining thread: %s\n", strerror(error_num));
-            exit(EXIT_FAILURE);
-        }
-    }
-}
-
 void *start_thread(void *signal) {
     int sig = *(int *) signal;
-    //checking if it is the last thread to start
     if (pthread_equal(pthread_self(), *threads[0])) {
         processSigArg(sig);
     }
-    pthread_cleanup_push(routine, NULL);
-    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
-    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+    pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
     int read_records;
     while ((read_records = read_data()) != 0) {
         char **data = pthread_getspecific(record_buffer_data_key);
         for (int i = 0; i < read_records; ++i) {
             record_str *record = (record_str *) data[i];
             if (find_text(record->text) == 1) {
-                pthread_mutex_lock(&file_mutex);
                 printf("Key found by thread with id %ld\n", get_thread_id());
-                cancel_threads_async();
-                pthread_mutex_unlock(&file_mutex);
-                pthread_exit((void *) 0);
             }
         }
     }
-    pthread_cleanup_pop(1);
+    // this mutex will be unlocked by main thread after the test
+    pthread_mutex_lock(&exit_mutex);
+    printf("Thread %ld exited\n", get_thread_id());
+    pthread_mutex_unlock(&exit_mutex);
     return (void *) 0;
 }
 
@@ -230,14 +211,6 @@ int read_records(char **data) {
         }
     }
     return record_num;
-}
-
-void cancel_threads_async() {
-    for (int i = 0; i < threads_num; ++i) {
-        if (threads[i] != NULL && pthread_equal(*threads[i], pthread_self()) == 0) {
-            pthread_cancel(*threads[i]);
-        }
-    }
 }
 
 int find_text(char *text) {

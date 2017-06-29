@@ -1,0 +1,44 @@
+1. wyslanie sygnalu do procesu, gdy zaden watek nie ma zamaskowanego tego sygnalu
+
+SIGUSR1 proces zakonczyl sie, zostal wypisany komunikat User defined signal 1
+SIGTERM proces zakonczyl sie, zostal wypisany komunikat Terminated
+SIGKILL proces zakonczyl sie, zostal wypisany komunikat Killed
+SIGSTOP proces zatrzymal sie, zostal wypisany komunikat Stopped
+
+2. wyslanie sygnalu do procesu, gdy glowny watek programu ma zamaskowany ten sygnal,
+a wszystkie pozostale watki nie,
+
+SIGUSR1 proces zakonczyl sie, zostal wypisany komunikat User defined signal 1
+SIGTERM proces zakonczyl sie, zostal wypisany komunikat Terminated
+
+3. wyslanie sygnalu do procesu, gdy wszystkie watki maja zainstalowana niestandardowa procedure
+obslugi przerwania, ktora wypisuje informacje o nadejsciu tego sygnalu oraz PID i TID danego watku
+
+SIGUSR1 procedura obslugi sygnalu zostala wywolana i wypisala PID oraz TID glownego watku, PID oraz TID sa takie same,
+        stworzone watki wykonuja sie
+SIGTERM procedura obslugi sygnalu zostala wywolana i wypisala PID oraz TID glownego watku, PID oraz TID sa takie same,
+        stworzone watki wykonuja sie
+
+4. wyslanie sygnalu do watku z zamaskowanym tym sygnałem
+
+SIGUSR1 nic sie nie dzieje, wszsytkie watki wykonuja sie
+SIGTERM nic sie nie dzieje, wszsytkie watki wykonuja sie
+
+5. wyslanie sygnalu do watku, w ktorym zmieniona jest procedura obslugi sygnalu, jak przedstawiono w punkcie 3
+
+SIGUSR1 procedura obslugi sygnalu zostala wywolana i wypisala PID oraz TID danego watku,
+        PID oraz TID roznia sie, wszystkie watki wykonuja sie
+SIGTERM procedura obslugi sygnalu zostala wywolana i wypisala PID oraz TID danego watku,
+        PID oraz TID roznia sie, wszystkie watki wykonuja sie
+
+b) Spraw, by w jednym z wątków następowało dzielenie przez zero i by był wygenerowany odpowiedni sygnał.
+Jak reaguje na niego wątek, który spowodował tę sytuację, a jak inne wątki wchodzące w skład tego samego procesu?
+Umieść odpowiedź w pliku zad2.raport . Zaznacz dla jakiego rodzaju systemu operacyjnego i wersji jądra były
+przeprowadzane testy i jaki to był komputer.
+
+Watek, ktory wykonal dzielenie przez zero, zostal zakonczony. Pozostale watki rowniez zostaly zakonczone,
+podobnie jak watek glowny i caly proces. Wypisany zostal komunikat Floating point exception (core dumped).
+
+system operacyjny: Ubuntu 16.04.2 LTS
+wersja jadra: 4.4.0-75-generic
+Test wykonany na komputerze osobistym

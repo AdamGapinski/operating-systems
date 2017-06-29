@@ -1,9 +1,0 @@
-cmake-build-debug
-CMakeLists.txt
-*.o
-*.so
-*.a
-.idea/*
-*/mainshared
-*/mainstatic
-*/maindynamic
